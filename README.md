@@ -48,6 +48,15 @@ npm run test
 npm run build
 ```
 
+Docker/Compose runtime preparation:
+
+```bash
+docker compose config
+docker compose up --build
+```
+
+See `docs/deployment/ec2-ebs.md` for EC2/EBS deployment, backup/restore, and RDS migration-path notes.
+
 ## Database schema
 
 The repository now includes the first Prisma/PostgreSQL schema at `prisma/schema.prisma`.
