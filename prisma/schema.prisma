@@ -204,6 +204,7 @@ model RoutePlan {
   id               String          @id @default(uuid()) @db.Uuid
   shopId           String          @db.Uuid
   shop             Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name             String          @db.Text
   planDate         DateTime        @db.Date
   status           RoutePlanStatus @default(DRAFT)
   driverId         String?         @db.Uuid
