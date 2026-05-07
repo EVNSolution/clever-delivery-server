@@ -42,6 +42,26 @@ npm run test
 npm run build
 ```
 
+## Database schema
+
+The repository now includes the first Prisma/PostgreSQL schema at `prisma/schema.prisma`.
+
+The `Shop` model is prepared for automatic Shopify app/token connection flows:
+
+- `shopDomain` uniquely identifies the Shopify shop.
+- `adminAccessTokenCiphertext` stores the encrypted Admin API access token.
+- `adminAccessTokenExpiresAt`, `adminRefreshTokenCiphertext`, and `adminRefreshTokenExpiresAt` reserve space for expiring offline-token refresh flows.
+- `tokenScopes` records the granted Admin API scopes.
+
+Local schema validation does not require a running PostgreSQL server:
+
+```bash
+npm run prisma:validate
+npm run prisma:format
+```
+
+Actual migrations and database connectivity are intentionally left for the follow-up DB/runtime branch.
+
 ## Project references
 
 - `AGENTS.md` for agent execution rules
