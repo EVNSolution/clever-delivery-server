@@ -18,8 +18,9 @@ This repository currently contains the basic Node.js/TypeScript API scaffold plu
 - Shopify session-token verifier, token-exchange client, API route, and env-driven runtime wiring
 - Shopify HTTPS webhook HMAC verifier, receive route, and idempotent receipt-storage contract
 - Shopify Admin GraphQL client plus order-sync query/mapper/service foundation
+- Driver API bearer-token verifier plus idempotent driver-event ingest route
 
-Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, Driver API, Docker, and EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/route-list APIs, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
@@ -163,6 +164,30 @@ The repository includes a credential-free foundation for pulling Shopify orders 
 - `PrismaOrderSyncRepository` upserts orders by `(shopId, shopifyOrderGid)` and delivery stops by `(shopId, orderId)`.
 
 Live sync still requires an installed shop token in the `shops` table and a real Shopify store. By default Shopify order access is limited to recent orders unless the app has appropriate order scopes/access.
+
+## Driver API event ingest readiness
+
+Driver clients should call this server, not Shopify Admin APIs directly. The first Driver API route is prepared as:
+
+```http
+POST /driver/events
+Authorization: Bearer <server-issued driver JWT>
+Content-Type: application/json
+
+{
+  "clientEventId": "mobile-event-1",
+  "eventType": "LOCATION_UPDATED",
+  "occurredAt": "2026-05-07T06:09:30.000Z",
+  "routePlanId": "route-plan-id",
+  "deliveryStopId": "stop-id",
+  "latitude": 40.7128,
+  "longitude": -74.006
+}
+```
+
+The route is registered when `JWT_SECRET` is configured. It verifies HS256 bearer tokens with audience `clever-delivery-driver`, extracts driver/shop context, validates event payloads, and records driver events idempotently by `(driverId, clientEventId)`.
+
+Driver login/session issuance and route assignment list APIs are still follow-up work.
 
 ## Project references
 
