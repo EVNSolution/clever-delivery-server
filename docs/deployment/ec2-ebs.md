@@ -95,3 +95,32 @@ DATABASE_URL=postgresql://clever:<password>@localhost:5432/clever_delivery \
 - No CI image publish workflow exists yet.
 - No live DB migration has been run yet.
 - Secrets management is still `.env`/host-managed; move to AWS SSM/Secrets Manager before production hardening.
+
+## GitHub-based EC2 deployment
+
+The MVP host can be deployed from GitHub Actions after the EC2 host has a checked-in deploy script and the host keeps runtime-only files outside Git:
+
+- repository checkout: `/srv/clever-delivery-server`
+- runtime secrets: `/srv/clever-delivery-server/.env` (not committed)
+- TLS reverse proxy config: `/srv/clever-delivery-server/Caddyfile` (not committed; copy from `Caddyfile.example`)
+- compose files: `docker-compose.yml` + `docker-compose.prod.yml`
+
+Required GitHub repository secrets:
+
+```text
+EC2_HOST=3.39.216.177
+EC2_USER=ubuntu
+EC2_APP_DIR=/srv/clever-delivery-server
+EC2_SSH_KEY=<private key for the EC2 key pair>
+```
+
+Deployment behavior:
+
+1. GitHub Actions connects to the EC2 host over SSH.
+2. `scripts/deploy-ec2.sh` initializes or updates a git checkout in `EC2_APP_DIR`.
+3. The script preserves `.env` and `Caddyfile` as host-managed runtime files.
+4. Docker Compose rebuilds the API image and restarts the API/PostgreSQL/Caddy stack.
+5. Prisma applies the current schema with `prisma db push --skip-generate`.
+6. The script verifies local `/healthz` and `/readyz` before completing.
+
+The workflow runs automatically after changes merge to `dev`, and can also be run manually with `workflow_dispatch` for a selected ref.
