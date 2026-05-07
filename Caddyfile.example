@@ -1,0 +1,5 @@
+# Copy to Caddyfile on the EC2 host and replace the hostname with the fixed sslip.io host.
+clever-delivery.3-39-216-177.sslip.io {
+  encode gzip
+  reverse_proxy api:3000
+}
