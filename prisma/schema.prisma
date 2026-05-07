@@ -196,7 +196,7 @@ model DeliveryStop {
   driverEvents    DriverEvent[]
 
   @@index([shopId, deliveryDate, status])
-  @@index([shopId, orderId])
+  @@unique([shopId, orderId])
   @@map("delivery_stops")
 }
 
