@@ -124,3 +124,19 @@ Deployment behavior:
 6. The script verifies local `/healthz` and `/readyz` before completing.
 
 The workflow runs automatically after changes merge to `dev`, and can also be run manually with `workflow_dispatch` for a selected ref.
+
+### Self-hosted runner note
+
+The MVP host currently uses a repository self-hosted runner named `clever-delivery-server-mvp` with labels:
+
+```text
+self-hosted, Linux, X64, clever-delivery-server, mvp-ec2
+```
+
+This avoids opening SSH to GitHub-hosted runner IP ranges. The workflow runs on the EC2 host itself and executes `scripts/deploy-ec2.sh` locally. The only required GitHub secret for this mode is:
+
+```text
+EC2_APP_DIR=/srv/clever-delivery-server
+```
+
+The older SSH secrets (`EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`) can remain for break-glass/manual recovery but are not used by the current workflow.
