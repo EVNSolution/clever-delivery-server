@@ -125,6 +125,9 @@ Deployment behavior:
 
 The workflow runs automatically after changes merge to `dev`, and can also be run manually with `workflow_dispatch` for a selected ref.
 
+For runtime request inspection without direct SSH, use the **Inspect EC2
+Runtime** workflow. See `docs/deployment/log-inspection.md`.
+
 ### Self-hosted runner note
 
 The MVP host currently uses a repository self-hosted runner named `clever-delivery-server-mvp` with labels:

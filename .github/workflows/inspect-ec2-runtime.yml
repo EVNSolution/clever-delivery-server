@@ -1,0 +1,43 @@
+name: Inspect EC2 Runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: Docker log time window, for example 30m, 2h, or 24h
+        required: false
+        default: 2h
+      tail:
+        description: Max log lines per service
+        required: false
+        default: "300"
+      include_database:
+        description: Include non-secret route plan DB summary
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  inspect:
+    name: Inspect deployed EC2 runtime
+    runs-on: [self-hosted, Linux, X64, clever-delivery-server, mvp-ec2]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      APP_DIR: ${{ secrets.EC2_APP_DIR || '/srv/clever-delivery-server' }}
+      LOG_SINCE: ${{ github.event.inputs.since || '2h' }}
+      LOG_TAIL: ${{ github.event.inputs.tail || '300' }}
+      INCLUDE_DB_COUNTS: ${{ github.event.inputs.include_database || 'true' }}
+    steps:
+      - name: Checkout inspection script
+        uses: actions/checkout@v4
+
+      - name: Inspect Docker Compose runtime
+        run: |
+          set -euo pipefail
+          chmod +x scripts/inspect-ec2-runtime.sh
+          scripts/inspect-ec2-runtime.sh
