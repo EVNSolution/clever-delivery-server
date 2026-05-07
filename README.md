@@ -6,14 +6,17 @@ Initial deployment target: AWS EC2 with EBS-backed PostgreSQL. Growth path: move
 
 ## Current repo state
 
-This repository currently contains the basic Node.js/TypeScript API scaffold only:
+This repository currently contains the basic Node.js/TypeScript API scaffold plus the first Prisma schema and shop-token storage foundation:
 
 - Fastify app factory
 - `/healthz` liveness endpoint
 - `/readyz` readiness endpoint for the current HTTP scaffold
 - TypeScript build, lint, typecheck, and Vitest test scripts
+- Prisma/PostgreSQL schema for delivery operations
+- AES-GCM helper for encrypting Shopify Admin API tokens before database storage
+- Shop-token service/repository for encrypted per-shop token persistence
 
-Shopify ingestion, Prisma/PostgreSQL schema, route optimization, Driver API, Docker, and EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook ingestion, Admin GraphQL order sync, route optimization, Driver API, Docker, and EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
@@ -61,6 +64,29 @@ npm run prisma:format
 ```
 
 Actual migrations and database connectivity are intentionally left for the follow-up DB/runtime branch.
+
+## Shopify shop token storage
+
+Embedded Shopify apps can exchange App Bridge session tokens for Admin API access tokens. This repo does not implement the HTTP route yet, but it now has the storage foundation for that flow:
+
+- `loadShopifyTokenEncryptionKey()` reads `SHOPIFY_TOKEN_ENCRYPTION_KEY`.
+- `encryptSecret()` / `decryptSecret()` use AES-256-GCM with associated shop context.
+- `ShopTokenService.storeAdminApiToken()` encrypts access/refresh tokens and writes only ciphertext through the repository.
+- `ShopTokenService.getAdminAccessToken()` decrypts the stored Admin API token for future Shopify Admin GraphQL calls.
+
+Generate a local encryption key with:
+
+```bash
+openssl rand -base64 32
+```
+
+Store it as:
+
+```env
+SHOPIFY_TOKEN_ENCRYPTION_KEY=base64:<generated-value>
+```
+
+Do not commit real Shopify Admin API tokens or production encryption keys.
 
 ## Project references
 
