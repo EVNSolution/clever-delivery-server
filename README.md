@@ -17,8 +17,9 @@ This repository currently contains the basic Node.js/TypeScript API scaffold plu
 - Shop-token service/repository for encrypted per-shop token persistence
 - Shopify session-token verifier, token-exchange client, API route, and env-driven runtime wiring
 - Shopify HTTPS webhook HMAC verifier, receive route, and idempotent receipt-storage contract
+- Shopify Admin GraphQL client plus order-sync query/mapper/service foundation
 
-Shopify webhook order processing, Admin GraphQL order sync, route optimization, Driver API, Docker, and EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, Driver API, Docker, and EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
@@ -141,6 +142,18 @@ The route is registered when `SHOPIFY_API_SECRET` is configured. It:
 - returns `202` for a newly recorded webhook and `200` for a duplicate receipt.
 
 Webhook payload processing is not implemented yet. The current contract records receipt idempotently so later order-sync work can safely consume `orders/create`, `orders/updated`, and related topics.
+
+## Shopify Admin GraphQL order sync foundation
+
+The repository includes a credential-free foundation for pulling Shopify orders later:
+
+- `ShopifyAdminGraphqlClient` posts to `https://{shop}/admin/api/{version}/graphql.json` with `X-Shopify-Access-Token`.
+- `buildOrdersUpdatedSinceQuery()` creates a paginated `orders` query filtered by `updated_at`.
+- `mapShopifyOrderNodeToDeliveryInputs()` maps Shopify order nodes into local `Order` and optional `DeliveryStop` write inputs.
+- `ShopifyOrderSyncService.syncUpdatedOrdersPage()` fetches one page and persists each mapped order through an injectable repository.
+- `PrismaOrderSyncRepository` upserts orders by `(shopId, shopifyOrderGid)` and delivery stops by `(shopId, orderId)`.
+
+Live sync still requires an installed shop token in the `shops` table and a real Shopify store. By default Shopify order access is limited to recent orders unless the app has appropriate order scopes/access.
 
 ## Project references
 
