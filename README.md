@@ -16,8 +16,9 @@ This repository currently contains the basic Node.js/TypeScript API scaffold plu
 - AES-GCM helper for encrypting Shopify Admin API tokens before database storage
 - Shop-token service/repository for encrypted per-shop token persistence
 - Shopify session-token verifier, token-exchange client, API route, and env-driven runtime wiring
+- Shopify HTTPS webhook HMAC verifier, receive route, and idempotent receipt-storage contract
 
-Shopify webhook ingestion, Admin GraphQL order sync, route optimization, Driver API, Docker, and EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook order processing, Admin GraphQL order sync, route optimization, Driver API, Docker, and EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
@@ -116,6 +117,30 @@ SHOPIFY_TOKEN_ENCRYPTION_KEY=base64:<generated-value>
 ```
 
 Do not commit real Shopify Admin API tokens or production encryption keys.
+
+## Shopify webhook receive API readiness
+
+The server can also prepare to receive HTTPS-delivered Shopify webhooks:
+
+```http
+POST /shopify/webhooks
+X-Shopify-Hmac-Sha256: <base64 HMAC>
+X-Shopify-Topic: orders/create
+X-Shopify-Shop-Domain: example.myshopify.com
+X-Shopify-Webhook-Id: <uuid>
+X-Shopify-Event-Id: <uuid>
+X-Shopify-API-Version: 2026-04
+Content-Type: application/json
+```
+
+The route is registered when `SHOPIFY_API_SECRET` is configured. It:
+
+- verifies `X-Shopify-Hmac-Sha256` against the raw request body using the Shopify app secret;
+- normalizes Shopify webhook headers case-insensitively through Fastify's header map;
+- stores webhook receipt metadata with `rawBodySha256`, topic, shop domain, webhook ID, optional event ID, API version, and triggered timestamp;
+- returns `202` for a newly recorded webhook and `200` for a duplicate receipt.
+
+Webhook payload processing is not implemented yet. The current contract records receipt idempotently so later order-sync work can safely consume `orders/create`, `orders/updated`, and related topics.
 
 ## Project references
 
