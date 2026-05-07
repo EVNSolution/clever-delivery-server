@@ -1,0 +1,36 @@
+name: Deploy EC2 MVP
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: false
+        default: dev
+  push:
+    branches:
+      - dev
+
+concurrency:
+  group: clever-delivery-server-ec2-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy on EC2 self-hosted runner
+    runs-on: [self-hosted, Linux, X64, clever-delivery-server, mvp-ec2]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      DEPLOY_REF: ${{ github.event.inputs.ref || github.ref_name }}
+      APP_DIR: ${{ secrets.EC2_APP_DIR || '/srv/clever-delivery-server' }}
+      REPO_URL: https://github.com/EVNSolution/clever-delivery-server.git
+    steps:
+      - name: Checkout deploy scripts
+        uses: actions/checkout@v4
+
+      - name: Deploy local EC2 runtime
+        run: |
+          set -euo pipefail
+          APP_DIR="$APP_DIR" REPO_URL="$REPO_URL" DEPLOY_REF="$DEPLOY_REF" bash scripts/deploy-ec2.sh

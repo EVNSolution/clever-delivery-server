@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: clever-delivery-server:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-clever}:${POSTGRES_PASSWORD:-clever}@postgres:5432/${POSTGRES_DB:-clever_delivery}
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "${API_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-clever_delivery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clever}
+      POSTGRES_USER: ${POSTGRES_USER:-clever}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clever} -d ${POSTGRES_DB:-clever_delivery}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backups:/backups
+
+volumes:
+  postgres-data:

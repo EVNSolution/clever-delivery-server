@@ -1,0 +1,284 @@
+import type { FastifyInstance } from 'fastify';
+
+import type {
+  CreateRoutePlanPayload,
+  RoutePlanOrderAttributeInput,
+  RoutePlanOrderInput,
+  RoutePlanService,
+  RoutePlanShippingAddressInput
+} from '../modules/route-plans/route-plan.types.js';
+
+export type AdminRoutePlanDependencies = {
+  routePlanService: RoutePlanService;
+  sessionTokenVerifier: {
+    verify(sessionToken: string, options?: object): { shopDomain: string; subject: string };
+  };
+};
+
+export function registerAdminRoutePlanRoutes(
+  app: FastifyInstance,
+  dependencies: AdminRoutePlanDependencies
+): void {
+  app.post<{ Body: unknown }>('/admin/route-plans', async (request, reply) => {
+    const authenticated = authenticate(request.headers.authorization, dependencies);
+    if (authenticated.status === 'unauthorized') {
+      return reply.code(401).send(errorResponse('UNAUTHORIZED', authenticated.message));
+    }
+
+    let payload: CreateRoutePlanPayload;
+    try {
+      payload = readCreateRoutePlanPayload(request.body);
+    } catch {
+      return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid route plan payload'));
+    }
+
+    const routePlan = await dependencies.routePlanService.createRoutePlan({
+      createdBy: authenticated.subject,
+      payload,
+      shopDomain: authenticated.shopDomain
+    });
+
+    return reply.code(201).send({
+      data: { routePlan },
+      error: null
+    });
+  });
+
+  app.get('/admin/route-plans', async (request, reply) => {
+    const authenticated = authenticate(request.headers.authorization, dependencies);
+    if (authenticated.status === 'unauthorized') {
+      return reply.code(401).send(errorResponse('UNAUTHORIZED', authenticated.message));
+    }
+
+    const routePlans = await dependencies.routePlanService.listRoutePlans({
+      shopDomain: authenticated.shopDomain
+    });
+
+    return reply.code(200).send({
+      data: { routePlans },
+      error: null
+    });
+  });
+
+  app.get<{ Params: { routePlanId: string } }>(
+    '/admin/route-plans/:routePlanId',
+    async (request, reply) => {
+      const authenticated = authenticate(request.headers.authorization, dependencies);
+      if (authenticated.status === 'unauthorized') {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', authenticated.message));
+      }
+
+      const detail = await dependencies.routePlanService.getRoutePlanDetail({
+        routePlanId: request.params.routePlanId,
+        shopDomain: authenticated.shopDomain
+      });
+      if (detail === null) {
+        return reply.code(404).send(errorResponse('NOT_FOUND', 'Route plan not found'));
+      }
+
+      return reply.code(200).send({
+        data: detail,
+        error: null
+      });
+    }
+  );
+}
+
+function authenticate(
+  authorization: string | undefined,
+  dependencies: AdminRoutePlanDependencies
+):
+  | { shopDomain: string; status: 'authenticated'; subject: string }
+  | { message: string; status: 'unauthorized' } {
+  const sessionToken = extractBearerToken(authorization);
+  if (sessionToken === null) {
+    return { message: 'Missing bearer session token', status: 'unauthorized' };
+  }
+
+  try {
+    const verified = dependencies.sessionTokenVerifier.verify(sessionToken);
+    return {
+      shopDomain: verified.shopDomain,
+      status: 'authenticated',
+      subject: verified.subject
+    };
+  } catch {
+    return { message: 'Invalid Shopify session token', status: 'unauthorized' };
+  }
+}
+
+function extractBearerToken(authorization: string | undefined): string | null {
+  if (authorization === undefined) {
+    return null;
+  }
+
+  const match = /^Bearer\s+(.+)$/iu.exec(authorization.trim());
+  if (match?.[1] === undefined || match[1].trim() === '') {
+    return null;
+  }
+
+  return match[1].trim();
+}
+
+function readCreateRoutePlanPayload(value: unknown): CreateRoutePlanPayload {
+  const object = requireObject(value);
+  const name = requireNonEmptyString(object.name);
+  const planDate = requirePlanDate(object.planDate);
+  const depot = readDepot(object.depot);
+  const orders = readOrders(object.orders);
+
+  return {
+    depot,
+    name,
+    orders,
+    planDate
+  };
+}
+
+function readDepot(value: unknown): CreateRoutePlanPayload['depot'] {
+  const object = requireObject(value);
+  return {
+    address: readNullableString(object.address),
+    latitude: readNullableCoordinate(object.latitude),
+    longitude: readNullableCoordinate(object.longitude)
+  };
+}
+
+function readOrders(value: unknown): RoutePlanOrderInput[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('orders must be a non-empty array');
+  }
+
+  return value.map((item) => readOrder(item));
+}
+
+function readOrder(value: unknown): RoutePlanOrderInput {
+  const object = requireObject(value);
+  return {
+    attributes: readAttributes(object.attributes),
+    currencyCode: readNullableString(object.currencyCode),
+    deliveryArea: readNullableString(object.deliveryArea),
+    deliveryDay: readNullableString(object.deliveryDay),
+    email: readNullableString(object.email),
+    financialStatus: readNullableString(object.financialStatus),
+    fulfillmentStatus: readNullableString(object.fulfillmentStatus),
+    latitude: readNullableCoordinate(object.latitude),
+    longitude: readNullableCoordinate(object.longitude),
+    name: requireNonEmptyString(object.name),
+    phone: readNullableString(object.phone),
+    processedAt: readNullableDate(object.processedAt),
+    rawPayload: object.rawPayload ?? {},
+    recipientName: readNullableString(object.recipientName),
+    shippingAddress: readShippingAddress(object.shippingAddress),
+    shopifyOrderGid: requireNonEmptyString(object.shopifyOrderGid),
+    totalPriceAmount: readNullableString(object.totalPriceAmount)
+  };
+}
+
+function readShippingAddress(value: unknown): RoutePlanShippingAddressInput {
+  const object = requireObject(value);
+  return {
+    address1: readNullableString(object.address1),
+    address2: readNullableString(object.address2),
+    city: readNullableString(object.city),
+    countryCode: readNullableString(object.countryCode),
+    postalCode: readNullableString(object.postalCode),
+    province: readNullableString(object.province)
+  };
+}
+
+function readAttributes(value: unknown): RoutePlanOrderAttributeInput[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error('attributes must be an array');
+  }
+
+  return value.map((item) => {
+    const object = requireObject(item);
+    return {
+      key: requireNonEmptyString(object.key),
+      value: requireNonEmptyString(object.value)
+    };
+  });
+}
+
+function requireObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('object required');
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function requireNonEmptyString(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error('non-empty string required');
+  }
+
+  return value.trim();
+}
+
+function requirePlanDate(value: unknown): string {
+  const planDate = requireNonEmptyString(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(planDate)) {
+    throw new Error('planDate must be YYYY-MM-DD');
+  }
+
+  const date = new Date(`${planDate}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== planDate) {
+    throw new Error('planDate must be valid');
+  }
+
+  return planDate;
+}
+
+function readNullableString(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error('string required');
+  }
+
+  return value.trim() === '' ? null : value.trim();
+}
+
+function readNullableCoordinate(value: unknown): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error('coordinate must be a finite number');
+  }
+
+  return value;
+}
+
+function readNullableDate(value: unknown): Date | null {
+  const text = readNullableString(value);
+  if (text === null) {
+    return null;
+  }
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('invalid date');
+  }
+
+  return date;
+}
+
+function errorResponse(code: string, message: string): {
+  data: null;
+  error: { code: string; message: string };
+} {
+  return {
+    data: null,
+    error: { code, message }
+  };
+}
