@@ -35,7 +35,8 @@ describe('PrismaOrderSyncRepository canonical orders', () => {
     expect(findManyInput?.where?.shopId).toBe('shop-id');
     expect(rows[0]).toEqual(
       expect.objectContaining({
-        deliveryWeekday: 'FRIDAY',
+        deliverySession: 'EVENING',
+      deliveryWeekday: 'FRIDAY',
         planningStatus: 'PLANNED',
         readiness: 'READY_TO_PLAN',
         serviceType: 'EVENING_DELIVERY',
@@ -96,6 +97,7 @@ describe('PrismaOrderSyncRepository canonical orders', () => {
         address2: null,
         city: null,
         countryCode: null,
+        deliveryDate: null,
         geocodeStatus: 'PENDING',
         instructions: null,
         latitude: null,
@@ -103,7 +105,9 @@ describe('PrismaOrderSyncRepository canonical orders', () => {
         phone: null,
         postalCode: null,
         province: null,
-        recipientName: null
+        recipientName: null,
+        timeWindowEnd: null,
+        timeWindowStart: null
       },
       where: { orderId: 'order-id', shopId: 'shop-id' }
     });
@@ -152,6 +156,7 @@ function syncedOrder(overrides: Partial<SyncedOrderWithDeliveryStopInput['order'
       address2: '#08',
       city: 'Mississauga',
       countryCode: 'CA',
+      deliveryDate: '2026-05-08',
       geocodeStatus: 'RESOLVED',
       instructions: 'Leave at door',
       latitude: '43.589',
@@ -159,20 +164,30 @@ function syncedOrder(overrides: Partial<SyncedOrderWithDeliveryStopInput['order'
       phone: '+14165550000',
       postalCode: 'L5B 3C1',
       province: 'ON',
-      recipientName: 'Noah Yoon'
+      recipientName: 'Noah Yoon',
+      timeWindowEnd: '21:00',
+      timeWindowStart: '17:00'
     },
     order: {
       cancelledAt: null,
       currencyCode: 'CAD',
       deliveryArea: 'Mississauga',
+      deliveryBatchEndDate: '2026-05-09',
+      deliveryBatchStartDate: '2026-05-07',
+      deliveryDate: '2026-05-08',
+      deliveryDateSource: 'LINE_ITEM_DATE_RANGE',
       deliveryDayRaw: 'Friday 5pm to 9pm *Check delivery map',
+      deliverySession: 'EVENING',
       deliveryWeekday: 'FRIDAY',
       email: 'customer@example.com',
       financialStatus: 'PAID',
       fulfillmentStatus: 'UNFULFILLED',
       name: '#1035',
+      orderCreatedAt: '2026-05-05T14:00:00.000Z',
+      orderDateLocal: '2026-05-05',
       phone: '+14165550000',
       pickup: false,
+      planningGroupKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00|Mississauga',
       processedAt: new Date('2026-05-07T12:00:00.000Z'),
       rawPayload: {
         currentTotalPriceSet: { shopMoney: { amount: '95.00', currencyCode: 'CAD' } },
@@ -184,6 +199,15 @@ function syncedOrder(overrides: Partial<SyncedOrderWithDeliveryStopInput['order'
         name: '#1035',
         phone: '+14165550000',
         processedAt: '2026-05-07T12:00:00.000Z',
+        deliveryBatchEndDate: '2026-05-09',
+        deliveryBatchStartDate: '2026-05-07',
+        deliveryDate: '2026-05-08',
+        deliveryDateSource: 'LINE_ITEM_DATE_RANGE',
+        deliverySession: 'EVENING',
+        orderCreatedAt: '2026-05-05T14:00:00.000Z',
+        orderDateLocal: '2026-05-05',
+        planningGroupKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00|Mississauga',
+        routeScopeKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00',
         shippingAddress: {
           address1: '300 City Centre Dr',
           address2: '#08',
@@ -200,6 +224,7 @@ function syncedOrder(overrides: Partial<SyncedOrderWithDeliveryStopInput['order'
       },
       readiness: 'READY_TO_PLAN',
       reviewReasons: [],
+      routeScopeKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00',
       serviceType: 'EVENING_DELIVERY',
       shopifyOrderGid: 'gid://shopify/Order/123',
       shopifyOrderLegacyId: BigInt(123),
@@ -242,11 +267,17 @@ function canonicalOrderRecord(routeStopCount: number): Record<string, unknown> {
     processedAt: new Date('2026-05-07T12:00:00.000Z'),
     rawPayload: {
       deliveryArea: 'Mississauga',
+      deliveryBatchEndDate: '2026-05-09',
+      deliveryBatchStartDate: '2026-05-07',
+      deliveryDate: '2026-05-08',
+      deliveryDateSource: 'LINE_ITEM_DATE_RANGE',
       deliveryDayRaw: 'Friday 5pm to 9pm *Check delivery map',
+      deliverySession: 'EVENING',
       deliveryWeekday: 'FRIDAY',
       pickup: false,
       readiness: 'READY_TO_PLAN',
       reviewReasons: [],
+      routeScopeKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00',
       serviceType: 'EVENING_DELIVERY',
       timeWindowEnd: '21:00',
       timeWindowStart: '17:00'

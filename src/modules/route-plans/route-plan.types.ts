@@ -1,3 +1,12 @@
+export type RoutePlanRouteScopeInput = {
+  deliveryDate: string;
+  deliverySession: 'DAY' | 'EVENING' | 'PICKUP';
+  routeScopeKey: string;
+  serviceType: 'DELIVERY' | 'EVENING_DELIVERY' | 'PICKUP';
+  timeWindowEnd: string | null;
+  timeWindowStart: string | null;
+};
+
 export type RoutePlanDepotInput = {
   address: string | null;
   latitude: number | null;
@@ -43,6 +52,7 @@ export type CreateRoutePlanPayload = {
   name: string;
   orders: RoutePlanOrderInput[];
   planDate: string;
+  routeScope?: RoutePlanRouteScopeInput;
 };
 
 export type CreateRoutePlanInput = {

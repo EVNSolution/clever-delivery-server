@@ -12,6 +12,7 @@ export type RoutePlanRepository = {
     name: string;
     orders: CreateRoutePlanInput['payload']['orders'];
     planDate: string;
+    routeScope?: CreateRoutePlanInput['payload']['routeScope'];
     shopDomain: string;
   }): Promise<RoutePlanSummary>;
   findRoutePlanDetail(input: {
@@ -31,6 +32,7 @@ export class RoutePlanAdminService implements RoutePlanService {
       name: input.payload.name,
       orders: input.payload.orders,
       planDate: input.payload.planDate,
+      routeScope: input.payload.routeScope,
       shopDomain: input.shopDomain
     });
   }

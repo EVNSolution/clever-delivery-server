@@ -4,6 +4,7 @@ import type {
   CreateRoutePlanPayload,
   RoutePlanOrderAttributeInput,
   RoutePlanOrderInput,
+  RoutePlanRouteScopeInput,
   RoutePlanService,
   RoutePlanShippingAddressInput
 } from '../modules/route-plans/route-plan.types.js';
@@ -28,7 +29,12 @@ export function registerAdminRoutePlanRoutes(
     let payload: CreateRoutePlanPayload;
     try {
       payload = readCreateRoutePlanPayload(request.body);
-    } catch {
+    } catch (error) {
+      if (error instanceof RouteScopeMismatchError) {
+        return reply
+          .code(400)
+          .send(errorResponse('ROUTE_SCOPE_MISMATCH', 'Route plan contains orders from different delivery scopes.'));
+      }
       return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid route plan payload'));
     }
 
@@ -126,13 +132,58 @@ function readCreateRoutePlanPayload(value: unknown): CreateRoutePlanPayload {
   const planDate = requirePlanDate(object.planDate);
   const depot = readDepot(object.depot);
   const orders = readOrders(object.orders);
+  const routeScope = readRouteScope(object.routeScope);
+  validateRouteScope(planDate, orders, routeScope);
 
   return {
     depot,
     name,
     orders,
-    planDate
+    planDate,
+    ...(routeScope === undefined ? {} : { routeScope })
   };
+}
+
+
+class RouteScopeMismatchError extends Error {}
+
+function readRouteScope(value: unknown): RoutePlanRouteScopeInput | undefined {
+  if (value === undefined || value === null) return undefined;
+  const object = requireObject(value);
+  const deliveryDate = requirePlanDate(object.deliveryDate);
+  const serviceType = requireNonEmptyString(object.serviceType);
+  if (serviceType !== 'DELIVERY' && serviceType !== 'EVENING_DELIVERY' && serviceType !== 'PICKUP') {
+    throw new Error('invalid serviceType');
+  }
+  const deliverySession = requireNonEmptyString(object.deliverySession);
+  if (deliverySession !== 'DAY' && deliverySession !== 'EVENING' && deliverySession !== 'PICKUP') {
+    throw new Error('invalid deliverySession');
+  }
+  return {
+    deliveryDate,
+    deliverySession,
+    routeScopeKey: requireNonEmptyString(object.routeScopeKey),
+    serviceType,
+    timeWindowEnd: readNullableTime(object.timeWindowEnd),
+    timeWindowStart: readNullableTime(object.timeWindowStart)
+  };
+}
+
+function validateRouteScope(
+  planDate: string,
+  orders: RoutePlanOrderInput[],
+  routeScope: RoutePlanRouteScopeInput | undefined
+): void {
+  if (routeScope === undefined) return;
+  if (planDate !== routeScope.deliveryDate) throw new RouteScopeMismatchError();
+  for (const order of orders) {
+    if (readOrderRouteScopeKey(order) !== routeScope.routeScopeKey) throw new RouteScopeMismatchError();
+  }
+}
+
+function readOrderRouteScopeKey(order: RoutePlanOrderInput): string | null {
+  const rawPayload = objectOrNull(order.rawPayload);
+  return readNullableString(rawPayload?.routeScopeKey);
 }
 
 function readDepot(value: unknown): CreateRoutePlanPayload['depot'] {
@@ -203,6 +254,21 @@ function readAttributes(value: unknown): RoutePlanOrderAttributeInput[] {
       value: requireNonEmptyString(object.value)
     };
   });
+}
+
+
+function readNullableTime(value: unknown): string | null {
+  const text = readNullableString(value);
+  if (text === null) return null;
+  if (!/^\d{2}:\d{2}$/u.test(text)) throw new Error('time must be HH:mm');
+  return text;
+}
+
+function objectOrNull(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }
 
 function requireObject(value: unknown): Record<string, unknown> {

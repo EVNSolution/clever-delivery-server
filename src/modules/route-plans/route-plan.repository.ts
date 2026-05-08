@@ -7,6 +7,7 @@ import type {
   RoutePlanOrderAttributeInput,
   RoutePlanOrderInput,
   RoutePlanShippingAddressInput,
+  RoutePlanRouteScopeInput,
   RoutePlanSummary
 } from './route-plan.types.js';
 import type { RoutePlanRepository } from './route-plan.service.js';
@@ -74,12 +75,13 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
     name: string;
     orders: RoutePlanOrderInput[];
     planDate: string;
+    routeScope?: RoutePlanRouteScopeInput;
     shopDomain: string;
   }): Promise<RoutePlanSummary> {
     const shopDomain = normalizeShopDomain(input.shopDomain);
     const planDate = parsePlanDate(input.planDate);
     const metrics = createMetrics(input.orders);
-    const constraints = createConstraints(input.depot);
+    const constraints = createConstraints(input.depot, input.routeScope);
 
     return this.prisma.$transaction(async (tx) => {
       const shop = await tx.shop.upsert({
@@ -108,11 +110,11 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
         });
         const deliveryStop = await tx.deliveryStop.upsert({
           create: {
-            ...toDeliveryStopWrite(orderInput, planDate),
+            ...toDeliveryStopWrite(orderInput, planDate, input.routeScope),
             orderId: order.id,
             shopId: shop.id
           },
-          update: toDeliveryStopWrite(orderInput, planDate),
+          update: toDeliveryStopWrite(orderInput, planDate, input.routeScope),
           where: {
             shopId_orderId: {
               orderId: order.id,
@@ -274,7 +276,8 @@ function toOrderWrite(input: RoutePlanOrderInput): {
 
 function toDeliveryStopWrite(
   input: RoutePlanOrderInput,
-  planDate: Date
+  planDate: Date,
+  routeScope: RoutePlanRouteScopeInput | undefined
 ): {
   address1: string | null;
   address2: string | null;
@@ -288,6 +291,8 @@ function toDeliveryStopWrite(
   postalCode: string | null;
   province: string | null;
   recipientName: string | null;
+  timeWindowEnd: Date | null;
+  timeWindowStart: Date | null;
 } {
   return {
     address1: input.shippingAddress.address1,
@@ -301,7 +306,9 @@ function toDeliveryStopWrite(
     phone: input.phone,
     postalCode: input.shippingAddress.postalCode,
     province: input.shippingAddress.province,
-    recipientName: input.recipientName
+    recipientName: input.recipientName,
+    timeWindowEnd: parseTorontoTimeWindow(routeScope?.deliveryDate ?? null, routeScope?.timeWindowEnd ?? null),
+    timeWindowStart: parseTorontoTimeWindow(routeScope?.deliveryDate ?? null, routeScope?.timeWindowStart ?? null)
   };
 }
 
@@ -363,7 +370,10 @@ function createMetrics(orders: RoutePlanOrderInput[]): Prisma.InputJsonObject {
   };
 }
 
-function createConstraints(depot: RoutePlanDepotInput): Prisma.InputJsonObject {
+function createConstraints(
+  depot: RoutePlanDepotInput,
+  routeScope: RoutePlanRouteScopeInput | undefined
+): Prisma.InputJsonObject {
   return {
     depot: {
       address: depot.address,
@@ -371,6 +381,7 @@ function createConstraints(depot: RoutePlanDepotInput): Prisma.InputJsonObject {
       longitude: depot.longitude
     },
     optimizer: OPTIMIZER_VERSION,
+    routeScope: routeScope ?? null,
     sequenceSource: 'request-order'
   };
 }
@@ -504,6 +515,13 @@ function decimalNumber(value: unknown): number | null {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+
+function parseTorontoTimeWindow(deliveryDate: string | null, time: string | null): Date | null {
+  if (deliveryDate === null || time === null) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(deliveryDate) || !/^\d{2}:\d{2}$/u.test(time)) return null;
+  return new Date(`${deliveryDate}T${time}:00-04:00`);
 }
 
 function parsePlanDate(value: string): Date {

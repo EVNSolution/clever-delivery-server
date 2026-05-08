@@ -164,8 +164,8 @@ test('normalizes delivery attributes, pickup hints, cancellation, and review rea
       readiness: 'NEEDS_REVIEW',
       reviewReasons: ['cancelled_order'],
       serviceType: 'PICKUP',
-      timeWindowEnd: '21:00',
-      timeWindowStart: '17:00'
+      timeWindowEnd: null,
+      timeWindowStart: null
     })
   );
 });
@@ -210,6 +210,9 @@ test('marks snapshots with missing delivery metadata and coordinates as needing 
         'missing_address',
         'missing_delivery_area',
         'delivery_day_parse_failed',
+        'missing_order_date',
+        'missing_delivery_date',
+        'missing_route_scope',
         'missing_coordinates'
       ],
       serviceType: null
@@ -277,4 +280,99 @@ test('normalizes pickup-only snapshots by pickup day instead of marking the day 
       reviewReasons: []
     })
   );
+});
+
+test('stores delivery route scope fields from line item date ranges', () => {
+  const mapped = mapShopifyOrderNodeToDeliveryInputs({
+    cancelledAt: null,
+    createdAt: '2026-05-05T14:00:00Z',
+    currentTotalPriceSet: { shopMoney: { amount: '95.00', currencyCode: 'CAD' } },
+    customAttributes: [
+      { key: 'Delivery Area', value: 'Thornhill' },
+      { key: 'Delivery Day', value: 'Friday 5pm to 9pm *Check delivery map' }
+    ],
+    displayFinancialStatus: 'PAID',
+    displayFulfillmentStatus: 'UNFULFILLED',
+    email: null,
+    id: 'gid://shopify/Order/900',
+    legacyResourceId: '900',
+    lineItems: { nodes: [{ title: 'Tomatono 5/7-5/9', quantity: 1 }] },
+    name: '#1900',
+    note: null,
+    phone: null,
+    processedAt: '2026-05-05T14:00:00Z',
+    shippingAddress: {
+      address1: '1 Yonge St',
+      address2: null,
+      city: 'Toronto',
+      countryCodeV2: 'CA',
+      latitude: 43.65,
+      longitude: -79.38,
+      name: 'Customer',
+      phone: null,
+      province: 'ON',
+      provinceCode: 'ON',
+      zip: 'M5E 1E5'
+    },
+    updatedAt: '2026-05-05T15:00:00Z'
+  });
+
+  expect(mapped.deliveryStop).toEqual(
+    expect.objectContaining({
+      deliveryDate: '2026-05-08',
+      timeWindowEnd: '21:00',
+      timeWindowStart: '17:00'
+    })
+  );
+  expect(mapped.order.rawPayload).toEqual(
+    expect.objectContaining({
+      deliveryBatchEndDate: '2026-05-09',
+      deliveryBatchStartDate: '2026-05-07',
+      deliveryDate: '2026-05-08',
+      deliveryDateSource: 'LINE_ITEM_DATE_RANGE',
+      deliverySession: 'EVENING',
+      orderDateLocal: '2026-05-05',
+      planningGroupKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00|Thornhill',
+      routeScopeKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00'
+    })
+  );
+  expect(mapped.order.readiness).toBe('READY_TO_PLAN');
+});
+
+test('requires delivery date and route scope for readiness', () => {
+  const mapped = mapShopifyOrderNodeToDeliveryInputs({
+    cancelledAt: null,
+    createdAt: null,
+    currentTotalPriceSet: null,
+    customAttributes: [
+      { key: 'Delivery Area', value: 'Thornhill' },
+      { key: 'Delivery Day', value: 'Friday' }
+    ],
+    displayFinancialStatus: null,
+    displayFulfillmentStatus: null,
+    email: null,
+    id: 'gid://shopify/Order/901',
+    legacyResourceId: '901',
+    lineItems: null,
+    name: '#1901',
+    phone: null,
+    processedAt: null,
+    shippingAddress: {
+      address1: '1 Yonge St',
+      address2: null,
+      city: 'Toronto',
+      countryCodeV2: 'CA',
+      latitude: 43.65,
+      longitude: -79.38,
+      name: 'Customer',
+      phone: null,
+      province: 'ON',
+      provinceCode: 'ON',
+      zip: 'M5E 1E5'
+    },
+    updatedAt: '2026-05-05T15:00:00Z'
+  });
+
+  expect(mapped.order.readiness).toBe('NEEDS_REVIEW');
+  expect(mapped.order.reviewReasons).toEqual(['missing_order_date', 'missing_delivery_date', 'missing_route_scope']);
 });
