@@ -115,6 +115,36 @@ describe('Admin orders routes', () => {
     }
   });
 
+  test('rejects order sync snapshots with invalid timestamps as bad requests', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      firstOrder.updatedAt = 'not-a-date';
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'BAD_REQUEST', message: 'Invalid order sync payload' }
+      });
+      expect(syncOrdersSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
   test('lists canonical orders with filters for the token shop', async () => {
     const { dependencies, listCanonicalOrders } = createDependencyHarness();
     const app = await buildApp({ adminOrders: dependencies });

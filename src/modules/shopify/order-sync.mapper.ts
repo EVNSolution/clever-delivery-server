@@ -136,8 +136,9 @@ export function mapShopifyOrderNodeToDeliveryInputs(
   const deliveryArea = readAttribute(attributes, 'Delivery Area');
   const deliveryDayRaw = readAttribute(attributes, 'Delivery Day');
   const pickupDay = readAttribute(attributes, 'Pickup Day');
-  const parsedDeliveryDay = parseDeliveryDay(deliveryDayRaw);
   const pickup = pickupDay !== null;
+  const canonicalDayRaw = deliveryDayRaw ?? pickupDay;
+  const parsedDeliveryDay = parseDeliveryDay(canonicalDayRaw);
   const hasShippingAddress = node.shippingAddress !== null && hasAddress(node.shippingAddress);
   const hasCoordinates =
     node.shippingAddress?.latitude !== null &&
@@ -148,7 +149,7 @@ export function mapShopifyOrderNodeToDeliveryInputs(
   const reviewReasons = buildReviewReasons({
     cancelledAt,
     deliveryArea,
-    deliveryDayRaw,
+    deliveryDayRaw: canonicalDayRaw,
     hasCoordinates,
     hasShippingAddress,
     parsedDeliveryDay
@@ -166,7 +167,7 @@ export function mapShopifyOrderNodeToDeliveryInputs(
       cancelledAt,
       currencyCode: node.currentTotalPriceSet?.shopMoney.currencyCode ?? null,
       deliveryArea,
-      deliveryDayRaw,
+      deliveryDayRaw: canonicalDayRaw,
       deliveryWeekday: parsedDeliveryDay.weekday,
       email: node.email,
       financialStatus: node.displayFinancialStatus,
@@ -179,9 +180,10 @@ export function mapShopifyOrderNodeToDeliveryInputs(
         ...node,
         attributes,
         deliveryArea,
-        deliveryDayRaw,
+        deliveryDayRaw: canonicalDayRaw,
         deliveryWeekday: parsedDeliveryDay.weekday,
         pickup,
+        pickupDayRaw: pickupDay,
         readiness,
         reviewReasons,
         serviceType,
@@ -254,7 +256,7 @@ function parseDeliveryDay(value: string | null): ParsedDeliveryDay {
     return { serviceType: null, timeWindowEnd: null, timeWindowStart: null, weekday: null };
   }
 
-  const normalized = value.trim().toLowerCase();
+  const normalized = normalizeDeliveryDayText(value);
   if (normalized === 'thursday') {
     return { serviceType: 'DELIVERY', timeWindowEnd: null, timeWindowStart: null, weekday: 'THURSDAY' };
   }
@@ -274,6 +276,14 @@ function parseDeliveryDay(value: string | null): ParsedDeliveryDay {
   }
 
   return { serviceType: null, timeWindowEnd: null, timeWindowStart: null, weekday: null };
+}
+
+function normalizeDeliveryDayText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s*-\s*pickup$/iu, '')
+    .replace(/\s+pickup$/iu, '');
 }
 
 function hasAddress(address: ShopifyShippingAddress): boolean {

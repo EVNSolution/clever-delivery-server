@@ -119,7 +119,7 @@ function readSyncPayload(value: unknown): {
 function readShopifyOrderSnapshot(value: unknown): ShopifyOrderNode {
   const object = requireObject(value);
   return {
-    cancelledAt: readNullableString(object.cancelledAt),
+    cancelledAt: readNullableIsoDateString(object.cancelledAt),
     currentTotalPriceSet: readMoneySet(object.currentTotalPriceSet),
     customAttributes: readAttributes(object.customAttributes),
     displayFinancialStatus: readNullableString(object.displayFinancialStatus),
@@ -130,9 +130,9 @@ function readShopifyOrderSnapshot(value: unknown): ShopifyOrderNode {
     name: requireString(object.name),
     note: readNullableString(object.note),
     phone: readNullableString(object.phone),
-    processedAt: readNullableString(object.processedAt),
+    processedAt: readNullableIsoDateString(object.processedAt),
     shippingAddress: readShippingAddress(object.shippingAddress),
-    updatedAt: requireString(object.updatedAt)
+    updatedAt: requireIsoDateString(object.updatedAt)
   };
 }
 
@@ -260,6 +260,21 @@ function readNullableString(value: unknown): string | null {
     return null;
   }
   return requireString(value);
+}
+
+function requireIsoDateString(value: unknown): string {
+  const text = requireString(value);
+  if (Number.isNaN(new Date(text).getTime())) {
+    throw new Error('date string required');
+  }
+  return text;
+}
+
+function readNullableIsoDateString(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return requireIsoDateString(value);
 }
 
 function readNullableNumber(value: unknown): number | null {

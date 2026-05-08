@@ -16,7 +16,7 @@ describe('PrismaOrderSyncRepository canonical orders', () => {
     });
 
     expect(result.status).toBe('created');
-    expect(prisma.order.create).toHaveBeenCalled();
+    expect(prisma.order.upsert).toHaveBeenCalled();
     expect(prisma.deliveryStop.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { shopId_orderId: { orderId: 'order-id', shopId: 'shop-id' } }
@@ -61,7 +61,52 @@ describe('PrismaOrderSyncRepository canonical orders', () => {
 
     expect(result.status).toBe('unchanged');
     expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.upsert).not.toHaveBeenCalled();
     expect(prisma.deliveryStop.upsert).not.toHaveBeenCalled();
+  });
+
+  test('clears stale delivery stop fields when a newer snapshot has no shipping address', async () => {
+    const { prisma } = createPrismaHarness({
+      existingOrder: { id: 'order-id', updatedAtShopify: new Date('2026-05-07T12:00:00.000Z') },
+      routeStopCount: 0
+    });
+    const repository = new PrismaOrderSyncRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaOrderSyncRepository>[0]
+    );
+
+    const result = await repository.upsertOrderWithDeliveryStop({
+      shopDomain: 'example.myshopify.com',
+      synced: {
+        ...syncedOrder({
+          rawPayload: {
+            ...syncedOrder().order.rawPayload,
+            shippingAddress: null
+          },
+          reviewReasons: ['missing_address', 'missing_coordinates'],
+          updatedAtShopify: new Date('2026-05-08T13:00:00.000Z')
+        }),
+        deliveryStop: null
+      }
+    });
+
+    expect(result.status).toBe('updated');
+    expect(prisma.deliveryStop.updateMany).toHaveBeenCalledWith({
+      data: {
+        address1: null,
+        address2: null,
+        city: null,
+        countryCode: null,
+        geocodeStatus: 'PENDING',
+        instructions: null,
+        latitude: null,
+        longitude: null,
+        phone: null,
+        postalCode: null,
+        province: null,
+        recipientName: null
+      },
+      where: { orderId: 'order-id', shopId: 'shop-id' }
+    });
   });
 });
 
@@ -70,12 +115,13 @@ function createPrismaHarness(input: {
   routeStopCount: number;
 }): {
   prisma: {
-    deliveryStop: { upsert: ReturnType<typeof vi.fn> };
+    deliveryStop: { updateMany: ReturnType<typeof vi.fn>; upsert: ReturnType<typeof vi.fn> };
     order: {
       create: ReturnType<typeof vi.fn>;
       findFirst: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      upsert: ReturnType<typeof vi.fn>;
     };
     shop: { findUnique: ReturnType<typeof vi.fn> };
   };
@@ -83,12 +129,16 @@ function createPrismaHarness(input: {
   const orderRecord = canonicalOrderRecord(input.routeStopCount);
   return {
     prisma: {
-      deliveryStop: { upsert: vi.fn(() => Promise.resolve({ id: 'stop-id' })) },
+      deliveryStop: {
+        updateMany: vi.fn(() => Promise.resolve({ count: 1 })),
+        upsert: vi.fn(() => Promise.resolve({ id: 'stop-id' }))
+      },
       order: {
         create: vi.fn(() => Promise.resolve({ id: 'order-id' })),
         findFirst: vi.fn(() => Promise.resolve(input.existingOrder)),
         findMany: vi.fn(() => Promise.resolve([orderRecord])),
-        update: vi.fn(() => Promise.resolve({ id: 'order-id' }))
+        update: vi.fn(() => Promise.resolve({ id: 'order-id' })),
+        upsert: vi.fn(() => Promise.resolve({ id: 'order-id' }))
       },
       shop: { findUnique: vi.fn(() => Promise.resolve({ id: 'shop-id' })) }
     }
