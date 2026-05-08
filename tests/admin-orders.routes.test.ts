@@ -8,7 +8,12 @@ const canonicalOrder: CanonicalOrderRow = {
   cancelledAt: null,
   currencyCode: 'CAD',
   deliveryArea: 'Mississauga',
+  deliveryBatchEndDate: '2026-05-09',
+  deliveryBatchStartDate: '2026-05-07',
+  deliveryDate: '2026-05-08',
+  deliveryDateSource: 'LINE_ITEM_DATE_RANGE',
   deliveryDayRaw: 'Friday 5pm to 9pm *Check delivery map',
+  deliverySession: 'EVENING',
   deliveryStopId: 'stop-id',
   deliveryWeekday: 'FRIDAY',
   email: 'customer@example.com',
@@ -19,14 +24,18 @@ const canonicalOrder: CanonicalOrderRow = {
   latitude: 43.589,
   longitude: -79.644,
   name: '#1035',
+  orderCreatedAt: '2026-05-05T14:00:00.000Z',
+  orderDateLocal: '2026-05-05',
   orderId: 'order-id',
   phone: '+14165550000',
   pickup: false,
+  planningGroupKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00|Mississauga',
   planningStatus: 'UNPLANNED',
   processedAt: '2026-05-07T12:00:00.000Z',
   readiness: 'READY_TO_PLAN',
   recipientName: 'Noah Yoon',
   reviewReasons: [],
+  routeScopeKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00',
   serviceType: 'EVENING_DELIVERY',
   shippingAddress: {
     address1: '300 City Centre Dr',
@@ -153,17 +162,23 @@ describe('Admin orders routes', () => {
       const response = await app.inject({
         headers: { authorization: 'Bearer session-token' },
         method: 'GET',
-        url: '/admin/orders?readiness=READY_TO_PLAN&planned=false&deliveryWeekday=FRIDAY&serviceType=EVENING_DELIVERY&geocodeStatus=RESOLVED&search=%231035'
+        url: '/admin/orders?readiness=READY_TO_PLAN&planned=false&deliveryWeekday=FRIDAY&serviceType=EVENING_DELIVERY&geocodeStatus=RESOLVED&deliveryDate=2026-05-08&deliveryBatchStartDate=2026-05-07&deliveryBatchEndDate=2026-05-09&deliverySession=EVENING&routeScopeKey=2026-05-08%7CEVENING_DELIVERY%7C17%3A00%7C21%3A00&planningGroupKey=2026-05-08%7CEVENING_DELIVERY%7C17%3A00%7C21%3A00%7CMississauga&search=%231035'
       });
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ data: { orders: [canonicalOrder] }, error: null });
       expect(listCanonicalOrders).toHaveBeenCalledWith({
         filters: {
+          deliveryBatchEndDate: '2026-05-09',
+          deliveryBatchStartDate: '2026-05-07',
+          deliveryDate: '2026-05-08',
+          deliverySession: 'EVENING',
           deliveryWeekday: 'FRIDAY',
           geocodeStatus: 'RESOLVED',
           planned: false,
+          planningGroupKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00|Mississauga',
           readiness: 'READY_TO_PLAN',
+          routeScopeKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00',
           search: '#1035',
           serviceType: 'EVENING_DELIVERY'
         },
@@ -173,6 +188,31 @@ describe('Admin orders routes', () => {
       await app.close();
     }
   });
+
+  test('rejects invalid delivery date and delivery session filters', async () => {
+    const { dependencies, listCanonicalOrders } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const invalidDate = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'GET',
+        url: '/admin/orders?deliveryDate=2026-02-31'
+      });
+      expect(invalidDate.statusCode).toBe(400);
+
+      const invalidSession = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'GET',
+        url: '/admin/orders?deliverySession=LATE_NIGHT'
+      });
+      expect(invalidSession.statusCode).toBe(400);
+      expect(listCanonicalOrders).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
 });
 
 function createDependencyHarness(): {
@@ -225,6 +265,7 @@ function orderSyncPayload(): Record<string, unknown> {
     orders: [
       {
         cancelledAt: null,
+        createdAt: '2026-05-05T14:00:00.000Z',
         currentTotalPriceSet: { shopMoney: { amount: '95.00', currencyCode: 'CAD' } },
         customAttributes: [
           { key: 'Delivery Area', value: 'Mississauga' },
@@ -235,6 +276,7 @@ function orderSyncPayload(): Record<string, unknown> {
         email: 'customer@example.com',
         id: 'gid://shopify/Order/123',
         legacyResourceId: '123',
+        lineItems: { nodes: [{ title: 'Tomatono 5/7-5/9', name: 'Tomatono 5/7-5/9', variantTitle: null, quantity: 1, sku: 'TOMA' }] },
         name: '#1035',
         note: 'Leave at door',
         phone: '+14165550000',

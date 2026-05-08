@@ -21,10 +21,16 @@ export type UpsertOrderWithDeliveryStopResult = {
 };
 
 export type ListCanonicalOrdersFilters = {
+  deliveryBatchEndDate?: string;
+  deliveryBatchStartDate?: string;
+  deliveryDate?: string;
+  deliverySession?: 'DAY' | 'EVENING' | 'PICKUP';
   deliveryWeekday?: DeliveryWeekday;
   geocodeStatus?: 'PENDING' | 'RESOLVED' | 'FAILED' | 'NOT_REQUIRED';
   planned?: boolean;
+  planningGroupKey?: string;
   readiness?: CanonicalOrderReadiness;
+  routeScopeKey?: string;
   search?: string;
   serviceType?: DeliveryServiceType;
 };
@@ -64,6 +70,7 @@ type DeliveryStopRecord = {
   address1: string | null;
   address2: string | null;
   city: string | null;
+  deliveryDate: Date | null;
   countryCode: string | null;
   geocodeStatus: string;
   id: string;
@@ -74,6 +81,8 @@ type DeliveryStopRecord = {
   province: string | null;
   recipientName: string | null;
   routePlanStops?: unknown[];
+  timeWindowEnd: Date | null;
+  timeWindowStart: Date | null;
 };
 
 export class PrismaOrderSyncRepository {
@@ -120,13 +129,14 @@ export class PrismaOrderSyncRepository {
       return { orderId: order.id, status: existing === null ? 'created' : 'updated', stopId: null };
     }
 
+    const deliveryStopWrite = toDeliveryStopWrite(input.synced.deliveryStop);
     const stop = await this.prisma.deliveryStop.upsert({
       create: {
-        ...input.synced.deliveryStop,
+        ...deliveryStopWrite,
         orderId: order.id,
         shopId: shop.id
       },
-      update: input.synced.deliveryStop,
+      update: deliveryStopWrite,
       where: {
         shopId_orderId: {
           orderId: order.id,
@@ -216,6 +226,7 @@ function clearedDeliveryStopWrite(): {
   address2: null;
   city: null;
   countryCode: null;
+  deliveryDate: null;
   geocodeStatus: 'PENDING';
   instructions: null;
   latitude: null;
@@ -224,12 +235,15 @@ function clearedDeliveryStopWrite(): {
   postalCode: null;
   province: null;
   recipientName: null;
+  timeWindowEnd: null;
+  timeWindowStart: null;
 } {
   return {
     address1: null,
     address2: null,
     city: null,
     countryCode: null,
+    deliveryDate: null,
     geocodeStatus: 'PENDING',
     instructions: null,
     latitude: null,
@@ -237,7 +251,9 @@ function clearedDeliveryStopWrite(): {
     phone: null,
     postalCode: null,
     province: null,
-    recipientName: null
+    recipientName: null,
+    timeWindowEnd: null,
+    timeWindowStart: null
   };
 }
 
@@ -247,7 +263,53 @@ function matchesDerivedFilters(row: CanonicalOrderRow, filters: ListCanonicalOrd
   if (filters.deliveryWeekday !== undefined && row.deliveryWeekday !== filters.deliveryWeekday) return false;
   if (filters.serviceType !== undefined && row.serviceType !== filters.serviceType) return false;
   if (filters.geocodeStatus !== undefined && row.geocodeStatus !== filters.geocodeStatus) return false;
+  if (filters.deliveryDate !== undefined && row.deliveryDate !== filters.deliveryDate) return false;
+  if (filters.deliveryBatchStartDate !== undefined && row.deliveryBatchStartDate !== filters.deliveryBatchStartDate) return false;
+  if (filters.deliveryBatchEndDate !== undefined && row.deliveryBatchEndDate !== filters.deliveryBatchEndDate) return false;
+  if (filters.deliverySession !== undefined && row.deliverySession !== filters.deliverySession) return false;
+  if (filters.routeScopeKey !== undefined && row.routeScopeKey !== filters.routeScopeKey) return false;
+  if (filters.planningGroupKey !== undefined && row.planningGroupKey !== filters.planningGroupKey) return false;
   return true;
+}
+
+
+function toDeliveryStopWrite(input: SyncedOrderWithDeliveryStopInput['deliveryStop']): {
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  countryCode: string | null;
+  deliveryDate: Date | null;
+  geocodeStatus: 'PENDING' | 'RESOLVED';
+  instructions: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  phone: string | null;
+  postalCode: string | null;
+  province: string | null;
+  recipientName: string | null;
+  timeWindowEnd: Date | null;
+  timeWindowStart: Date | null;
+} {
+  if (input === null) {
+    throw new Error('delivery stop input required');
+  }
+  return {
+    address1: input.address1,
+    address2: input.address2,
+    city: input.city,
+    countryCode: input.countryCode,
+    deliveryDate: parseDateOnly(input.deliveryDate),
+    geocodeStatus: input.geocodeStatus,
+    instructions: input.instructions,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    phone: input.phone,
+    postalCode: input.postalCode,
+    province: input.province,
+    recipientName: input.recipientName,
+    timeWindowEnd: parseTorontoTimeWindow(input.deliveryDate, input.timeWindowEnd),
+    timeWindowStart: parseTorontoTimeWindow(input.deliveryDate, input.timeWindowStart)
+  };
 }
 
 function toOrderWrite(input: SyncedOrderWithDeliveryStopInput['order']): {
@@ -318,7 +380,12 @@ function toCanonicalOrderRow(order: CanonicalOrderRecord): CanonicalOrderRow {
     cancelledAt: formatDateTime(order.cancelledAt),
     currencyCode: order.currencyCode,
     deliveryArea: readString(raw?.deliveryArea),
+    deliveryBatchEndDate: readString(raw?.deliveryBatchEndDate),
+    deliveryBatchStartDate: readString(raw?.deliveryBatchStartDate),
+    deliveryDate: readString(raw?.deliveryDate) ?? formatDateOnlyNullable(stop?.deliveryDate ?? null),
+    deliveryDateSource: readDeliveryDateSource(raw?.deliveryDateSource),
     deliveryDayRaw: readString(raw?.deliveryDayRaw) ?? readString(raw?.deliveryDay),
+    deliverySession: readDeliverySession(raw?.deliverySession),
     deliveryStopId: stop?.id ?? null,
     deliveryWeekday: readDeliveryWeekday(raw?.deliveryWeekday),
     email: order.email,
@@ -329,14 +396,18 @@ function toCanonicalOrderRow(order: CanonicalOrderRecord): CanonicalOrderRow {
     latitude,
     longitude,
     name: order.name,
+    orderCreatedAt: readString(raw?.orderCreatedAt),
+    orderDateLocal: readString(raw?.orderDateLocal),
     orderId: order.id,
     phone: order.phone,
     pickup: readBoolean(raw?.pickup) ?? false,
+    planningGroupKey: readString(raw?.planningGroupKey),
     planningStatus,
     processedAt: formatDateTime(order.processedAt),
     readiness,
     recipientName: stop?.recipientName ?? readString(raw?.recipientName),
     reviewReasons,
+    routeScopeKey: readString(raw?.routeScopeKey),
     serviceType: readServiceType(raw?.serviceType),
     shippingAddress,
     shopifyOrderGid: order.shopifyOrderGid,
@@ -381,6 +452,64 @@ function readDeliveryWeekday(value: unknown): DeliveryWeekday | null {
 
 function readServiceType(value: unknown): DeliveryServiceType | null {
   return value === 'DELIVERY' || value === 'EVENING_DELIVERY' || value === 'PICKUP' ? value : null;
+}
+
+
+function readDeliverySession(value: unknown): CanonicalOrderRow['deliverySession'] {
+  return value === 'DAY' || value === 'EVENING' || value === 'PICKUP' ? value : null;
+}
+
+function readDeliveryDateSource(value: unknown): CanonicalOrderRow['deliveryDateSource'] {
+  return value === 'LINE_ITEM_DATE_RANGE' || value === 'ORDER_DATE_CYCLE_RULE' || value === 'MISSING' ? value : null;
+}
+
+function parseDateOnly(value: string | null): Date | null {
+  if (value === null) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null;
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function parseTorontoTimeWindow(deliveryDate: string | null, time: string | null): Date | null {
+  if (deliveryDate === null || time === null) return null;
+  if (!/^\d{2}:\d{2}$/u.test(time)) return null;
+  return zonedTimeToUtc(deliveryDate, time, 'America/Toronto');
+}
+
+function zonedTimeToUtc(date: string, time: string, timeZone: string): Date | null {
+  const dateParts = date.split('-').map(Number);
+  const timeParts = time.split(':').map(Number);
+  const year = dateParts[0];
+  const month = dateParts[1];
+  const day = dateParts[2];
+  const hour = timeParts[0];
+  const minute = timeParts[1];
+  if (year === undefined || month === undefined || day === undefined || hour === undefined || minute === undefined) return null;
+  if ([year, month, day, hour, minute].some((part) => Number.isNaN(part))) return null;
+  let utc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  for (let index = 0; index < 2; index += 1) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false,
+      minute: '2-digit',
+      month: '2-digit',
+      timeZone,
+      year: 'numeric'
+    }).formatToParts(utc);
+    const localYear = Number(parts.find((part) => part.type === 'year')?.value);
+    const localMonth = Number(parts.find((part) => part.type === 'month')?.value);
+    const localDay = Number(parts.find((part) => part.type === 'day')?.value);
+    const localHour = Number(parts.find((part) => part.type === 'hour')?.value);
+    const localMinute = Number(parts.find((part) => part.type === 'minute')?.value);
+    const localAsUtc = Date.UTC(localYear, localMonth - 1, localDay, localHour, localMinute, 0);
+    const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+    utc = new Date(utc.getTime() + (targetAsUtc - localAsUtc));
+  }
+  return utc;
+}
+
+function formatDateOnlyNullable(value: Date | null): string | null {
+  return value === null ? null : value.toISOString().slice(0, 10);
 }
 
 function readGeocodeStatus(value: unknown): CanonicalOrderRow['geocodeStatus'] {

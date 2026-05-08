@@ -104,6 +104,76 @@ describe('Admin route plan routes', () => {
     }
   });
 
+
+  test('creates a route plan when every order matches the requested route scope', async () => {
+    const { createRoutePlan, dependencies } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+    const payload = scopedRoutePlanPayload();
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'POST',
+        payload,
+        url: '/admin/route-plans'
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(createRoutePlan).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects route plans that mix Friday day and Friday evening scopes', async () => {
+    const { createRoutePlan, dependencies } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+    const payload = scopedRoutePlanPayload({
+      secondOrderRawPayload: { routeScopeKey: '2026-05-08|DELIVERY||' }
+    });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'POST',
+        payload,
+        url: '/admin/route-plans'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: {
+          code: 'ROUTE_SCOPE_MISMATCH',
+          message: 'Route plan contains orders from different delivery scopes.'
+        }
+      });
+      expect(createRoutePlan).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('allows multiple delivery areas within the same route scope', async () => {
+    const { createRoutePlan, dependencies } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+    const payload = scopedRoutePlanPayload({ secondOrderArea: 'Thornhill' });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'POST',
+        payload,
+        url: '/admin/route-plans'
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(createRoutePlan).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
   test('lists route plans for the token shop', async () => {
     const { dependencies, listRoutePlans } = createDependencyHarness();
     const app = await buildApp({ adminRoutePlans: dependencies });
@@ -231,6 +301,33 @@ function createDependencyHarness(): {
     getRoutePlanDetail,
     listRoutePlans
   };
+}
+
+
+function scopedRoutePlanPayload(input: {
+  secondOrderArea?: string;
+  secondOrderRawPayload?: Record<string, unknown>;
+} = {}): Record<string, unknown> {
+  const routeScope = {
+    deliveryDate: '2026-05-08',
+    deliverySession: 'EVENING',
+    routeScopeKey: '2026-05-08|EVENING_DELIVERY|17:00|21:00',
+    serviceType: 'EVENING_DELIVERY',
+    timeWindowEnd: '21:00',
+    timeWindowStart: '17:00'
+  };
+  const payload = routePlanPayload();
+  const orders = payload.orders as Record<string, unknown>[];
+  const first = orders[0] ?? {};
+  first.rawPayload = { routeScopeKey: routeScope.routeScopeKey };
+  orders.push({
+    ...first,
+    deliveryArea: input.secondOrderArea ?? 'Mississauga',
+    name: '#1036',
+    rawPayload: input.secondOrderRawPayload ?? { routeScopeKey: routeScope.routeScopeKey },
+    shopifyOrderGid: 'gid://shopify/Order/124'
+  });
+  return { ...payload, planDate: '2026-05-08', routeScope };
 }
 
 function routePlanPayload(): Record<string, unknown> {

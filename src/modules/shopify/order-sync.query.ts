@@ -26,10 +26,10 @@ export const ORDERS_UPDATED_SINCE_QUERY = `#graphql
         id
         legacyResourceId
         name
-        email
         phone
         displayFinancialStatus
         displayFulfillmentStatus
+        createdAt
         processedAt
         updatedAt
         cancelledAt
@@ -37,6 +37,15 @@ export const ORDERS_UPDATED_SINCE_QUERY = `#graphql
         customAttributes {
           key
           value
+        }
+        lineItems(first: 20) {
+          nodes {
+            title
+            name
+            variantTitle
+            quantity
+            sku
+          }
         }
         currentTotalPriceSet {
           shopMoney {

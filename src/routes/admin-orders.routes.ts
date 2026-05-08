@@ -120,6 +120,7 @@ function readShopifyOrderSnapshot(value: unknown): ShopifyOrderNode {
   const object = requireObject(value);
   return {
     cancelledAt: readNullableIsoDateString(object.cancelledAt),
+    createdAt: readNullableIsoDateString(object.createdAt),
     currentTotalPriceSet: readMoneySet(object.currentTotalPriceSet),
     customAttributes: readAttributes(object.customAttributes),
     displayFinancialStatus: readNullableString(object.displayFinancialStatus),
@@ -127,12 +128,52 @@ function readShopifyOrderSnapshot(value: unknown): ShopifyOrderNode {
     email: readNullableString(object.email),
     id: requireString(object.id),
     legacyResourceId: requireString(object.legacyResourceId),
+    lineItems: readLineItems(object.lineItems),
     name: requireString(object.name),
     note: readNullableString(object.note),
     phone: readNullableString(object.phone),
     processedAt: readNullableIsoDateString(object.processedAt),
     shippingAddress: readShippingAddress(object.shippingAddress),
     updatedAt: requireIsoDateString(object.updatedAt)
+  };
+}
+
+
+function readLineItems(value: unknown): ShopifyOrderNode['lineItems'] {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const object = requireObject(value);
+  const nodes = object.nodes === undefined || object.nodes === null ? null : readLineItemArray(object.nodes);
+  const edges = object.edges === undefined || object.edges === null ? null : readLineItemEdges(object.edges);
+  return { edges, nodes };
+}
+
+function readLineItemArray(value: unknown): NonNullable<NonNullable<ShopifyOrderNode['lineItems']>['nodes']> {
+  if (!Array.isArray(value)) {
+    throw new Error('lineItems.nodes must be an array');
+  }
+  return value.map((item) => readLineItem(item));
+}
+
+function readLineItemEdges(value: unknown): NonNullable<NonNullable<ShopifyOrderNode['lineItems']>['edges']> {
+  if (!Array.isArray(value)) {
+    throw new Error('lineItems.edges must be an array');
+  }
+  return value.map((item) => {
+    const object = requireObject(item);
+    return { node: readLineItem(object.node) };
+  });
+}
+
+function readLineItem(value: unknown): NonNullable<NonNullable<ShopifyOrderNode['lineItems']>['nodes']>[number] {
+  const object = requireObject(value);
+  return {
+    name: readNullableString(object.name),
+    quantity: readNullableNumber(object.quantity),
+    sku: readNullableString(object.sku),
+    title: readNullableString(object.title),
+    variantTitle: readNullableString(object.variantTitle)
   };
 }
 
@@ -223,9 +264,46 @@ function readFilters(query: Record<string, string | string[] | undefined>): List
     }
     filters.geocodeStatus = geocodeStatus;
   }
+  const deliveryDate = readSingleQuery(query.deliveryDate);
+  if (deliveryDate !== null) {
+    requireDateOnly(deliveryDate);
+    filters.deliveryDate = deliveryDate;
+  }
+  const deliveryBatchStartDate = readSingleQuery(query.deliveryBatchStartDate);
+  if (deliveryBatchStartDate !== null) {
+    requireDateOnly(deliveryBatchStartDate);
+    filters.deliveryBatchStartDate = deliveryBatchStartDate;
+  }
+  const deliveryBatchEndDate = readSingleQuery(query.deliveryBatchEndDate);
+  if (deliveryBatchEndDate !== null) {
+    requireDateOnly(deliveryBatchEndDate);
+    filters.deliveryBatchEndDate = deliveryBatchEndDate;
+  }
+  const deliverySession = readSingleQuery(query.deliverySession);
+  if (deliverySession !== null) {
+    if (deliverySession !== 'DAY' && deliverySession !== 'EVENING' && deliverySession !== 'PICKUP') {
+      throw new Error('invalid deliverySession');
+    }
+    filters.deliverySession = deliverySession;
+  }
+  const routeScopeKey = readSingleQuery(query.routeScopeKey);
+  if (routeScopeKey !== null) filters.routeScopeKey = routeScopeKey;
+  const planningGroupKey = readSingleQuery(query.planningGroupKey);
+  if (planningGroupKey !== null) filters.planningGroupKey = planningGroupKey;
   const search = readSingleQuery(query.search);
   if (search !== null) filters.search = search;
   return filters;
+}
+
+
+function requireDateOnly(value: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    throw new Error('date must be YYYY-MM-DD');
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    throw new Error('date must be valid');
+  }
 }
 
 function extractBearerToken(authorization: string | undefined): string | null {
