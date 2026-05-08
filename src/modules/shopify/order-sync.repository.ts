@@ -101,12 +101,22 @@ export class PrismaOrderSyncRepository {
     }
 
     const orderWrite = toOrderWrite(input.synced.order);
-    const order =
-      existing === null
-        ? await this.prisma.order.create({ data: { ...orderWrite, shopId: shop.id } })
-        : await this.prisma.order.update({ data: orderWrite, where: { id: existing.id } });
+    const order = await this.prisma.order.upsert({
+      create: { ...orderWrite, shopId: shop.id },
+      update: orderWrite,
+      where: {
+        shopId_shopifyOrderGid: {
+          shopId: shop.id,
+          shopifyOrderGid: input.synced.order.shopifyOrderGid
+        }
+      }
+    });
 
     if (input.synced.deliveryStop === null) {
+      await this.prisma.deliveryStop.updateMany({
+        data: clearedDeliveryStopWrite(),
+        where: { orderId: order.id, shopId: shop.id }
+      });
       return { orderId: order.id, status: existing === null ? 'created' : 'updated', stopId: null };
     }
 
@@ -199,6 +209,36 @@ function toOrderWhere(shopId: string, filters: ListCanonicalOrdersFilters): Pris
     ];
   }
   return where;
+}
+
+function clearedDeliveryStopWrite(): {
+  address1: null;
+  address2: null;
+  city: null;
+  countryCode: null;
+  geocodeStatus: 'PENDING';
+  instructions: null;
+  latitude: null;
+  longitude: null;
+  phone: null;
+  postalCode: null;
+  province: null;
+  recipientName: null;
+} {
+  return {
+    address1: null,
+    address2: null,
+    city: null,
+    countryCode: null,
+    geocodeStatus: 'PENDING',
+    instructions: null,
+    latitude: null,
+    longitude: null,
+    phone: null,
+    postalCode: null,
+    province: null,
+    recipientName: null
+  };
 }
 
 function matchesDerivedFilters(row: CanonicalOrderRow, filters: ListCanonicalOrdersFilters): boolean {

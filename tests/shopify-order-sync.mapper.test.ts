@@ -216,3 +216,65 @@ test('marks snapshots with missing delivery metadata and coordinates as needing 
     })
   );
 });
+
+test('normalizes pickup-only snapshots by pickup day instead of marking the day missing', () => {
+  const mapped = mapShopifyOrderNodeToDeliveryInputs({
+    cancelledAt: null,
+    currentTotalPriceSet: {
+      shopMoney: {
+        amount: '45.00',
+        currencyCode: 'CAD'
+      }
+    },
+    customAttributes: [
+      { key: 'Delivery Area', value: 'North York' },
+      { key: 'Pickup Day', value: 'Thursday-pickup' }
+    ],
+    displayFinancialStatus: 'PAID',
+    displayFulfillmentStatus: 'UNFULFILLED',
+    email: 'pickup@example.com',
+    id: 'gid://shopify/Order/789',
+    legacyResourceId: '789',
+    name: '#1037',
+    note: null,
+    phone: '+14165550123',
+    processedAt: '2026-05-07T12:00:00Z',
+    shippingAddress: {
+      address1: '10 Pickup Rd',
+      address2: null,
+      city: 'Toronto',
+      countryCodeV2: 'CA',
+      latitude: 43.7,
+      longitude: -79.4,
+      name: 'Pickup Customer',
+      phone: '+14165550123',
+      province: 'ON',
+      provinceCode: 'ON',
+      zip: 'M2N 1N8'
+    },
+    updatedAt: '2026-05-07T13:00:00Z'
+  });
+
+  expect(mapped.order).toEqual(
+    expect.objectContaining({
+      deliveryArea: 'North York',
+      deliveryDayRaw: 'Thursday-pickup',
+      deliveryWeekday: 'THURSDAY',
+      pickup: true,
+      readiness: 'READY_TO_PLAN',
+      reviewReasons: [],
+      serviceType: 'PICKUP',
+      timeWindowEnd: null,
+      timeWindowStart: null
+    })
+  );
+  expect(mapped.order.rawPayload).toEqual(
+    expect.objectContaining({
+      deliveryDayRaw: 'Thursday-pickup',
+      pickupDayRaw: 'Thursday-pickup',
+      deliveryWeekday: 'THURSDAY',
+      readiness: 'READY_TO_PLAN',
+      reviewReasons: []
+    })
+  );
+});
