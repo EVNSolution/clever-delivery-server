@@ -32,6 +32,12 @@ export const ORDERS_UPDATED_SINCE_QUERY = `#graphql
         displayFulfillmentStatus
         processedAt
         updatedAt
+        cancelledAt
+        note
+        customAttributes {
+          key
+          value
+        }
         currentTotalPriceSet {
           shopMoney {
             amount
@@ -45,6 +51,7 @@ export const ORDERS_UPDATED_SINCE_QUERY = `#graphql
           address2
           city
           province
+          provinceCode
           zip
           countryCodeV2
           latitude

@@ -4,6 +4,7 @@ import type {
   ShopifyAdminGraphqlClient,
   ShopifyAdminGraphqlRequest
 } from '../src/modules/shopify/admin-graphql.client.js';
+import type { CanonicalOrderRow, ShopifyOrderNode } from '../src/modules/shopify/order-sync.mapper.js';
 import type {
   UpsertOrderWithDeliveryStopInput,
   UpsertOrderWithDeliveryStopResult
@@ -50,10 +51,16 @@ describe('ShopifyOrderSyncService', () => {
     } = {
       upsertOrderWithDeliveryStop: vi.fn((input: UpsertOrderWithDeliveryStopInput) => {
         void input;
-        return Promise.resolve({ orderId: 'local-order-id', stopId: null });
+        return Promise.resolve({ orderId: 'local-order-id', status: 'created', stopId: null });
       })
     };
-    const service = new ShopifyOrderSyncService({ graphqlClient, repository });
+    const service = new ShopifyOrderSyncService({
+      graphqlClient,
+      repository: {
+        ...repository,
+        listCanonicalOrders: () => Promise.resolve([] satisfies CanonicalOrderRow[])
+      }
+    });
 
     await expect(
       service.syncUpdatedOrdersPage({
@@ -78,3 +85,77 @@ describe('ShopifyOrderSyncService', () => {
     expect(repositoryInput.synced.order.shopifyOrderGid).toBe('gid://shopify/Order/123');
   });
 });
+
+test('syncs app-provided order snapshots and summarizes repository outcomes', async () => {
+  const repository = {
+    listCanonicalOrders: vi.fn(() => Promise.resolve([])),
+    upsertOrderWithDeliveryStop: vi
+      .fn()
+      .mockResolvedValueOnce({ orderId: 'order-1', status: 'created', stopId: 'stop-1' })
+      .mockResolvedValueOnce({ orderId: 'order-2', status: 'unchanged', stopId: 'stop-2' }),
+    findCanonicalOrderById: vi
+      .fn()
+      .mockResolvedValueOnce({ readiness: 'READY_TO_PLAN' })
+      .mockResolvedValueOnce({ readiness: 'NEEDS_REVIEW' })
+  };
+  const service = new ShopifyOrderSyncService({
+    graphqlClient: { request: vi.fn() },
+    repository
+  });
+
+  await expect(
+    service.syncOrdersSnapshot({
+      orders: [snapshotOrder({ id: 'gid://shopify/Order/1' }), snapshotOrder({ id: 'gid://shopify/Order/2' })],
+      reason: 'manual_refresh',
+      shopDomain: 'example.myshopify.com',
+      source: 'clever-app-orders',
+      subject: 'shopify-user-id'
+    })
+  ).resolves.toEqual({
+    orders: [{ readiness: 'READY_TO_PLAN' }, { readiness: 'NEEDS_REVIEW' }],
+    sync: {
+      created: 1,
+      needsReview: 1,
+      readyToPlan: 1,
+      received: 2,
+      skipped: 0,
+      unchanged: 1,
+      updated: 0
+    }
+  });
+});
+
+function snapshotOrder(overrides: Partial<ShopifyOrderNode> = {}): ShopifyOrderNode {
+  return {
+    cancelledAt: null,
+    currentTotalPriceSet: { shopMoney: { amount: '95.00', currencyCode: 'CAD' } },
+    customAttributes: [
+      { key: 'Delivery Area', value: 'Mississauga' },
+      { key: 'Delivery Day', value: 'Thursday' }
+    ],
+    displayFinancialStatus: 'PAID',
+    displayFulfillmentStatus: 'UNFULFILLED',
+    email: 'customer@example.com',
+    id: 'gid://shopify/Order/123',
+    legacyResourceId: '123',
+    name: '#1035',
+    note: null,
+    phone: '+14165550000',
+    processedAt: '2026-05-07T12:00:00Z',
+    shippingAddress: {
+      address1: '300 City Centre Dr',
+      address2: '#08',
+      city: 'Mississauga',
+      countryCodeV2: 'CA',
+      latitude: 43.589,
+      longitude: -79.644,
+      name: 'Noah Yoon',
+      phone: '+14165550000',
+      province: 'ON',
+      provinceCode: 'ON',
+      zip: 'L5B 3C1'
+    },
+    updatedAt: '2026-05-07T13:00:00Z',
+    ...overrides
+  };
+}
