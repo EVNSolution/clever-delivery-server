@@ -54,12 +54,13 @@ describe('mapShopifyOrderNodeToDeliveryInputs', () => {
     });
 
     expect(mapped.order.rawPayload.id).toBe('gid://shopify/Order/123');
-    expect(mapped).toEqual({
-      deliveryStop: {
+    expect(mapped.deliveryStop).toEqual(
+      expect.objectContaining({
         address1: '1 Main St',
         address2: 'Unit 2',
         city: 'New York',
         countryCode: 'US',
+        geocodeStatus: 'RESOLVED',
         instructions: null,
         latitude: '40.7128',
         longitude: '-74.006',
@@ -67,8 +68,10 @@ describe('mapShopifyOrderNodeToDeliveryInputs', () => {
         postalCode: '10001',
         province: 'NY',
         recipientName: 'Ada Lovelace'
-      },
-      order: {
+      })
+    );
+    expect(mapped.order).toEqual(
+      expect.objectContaining({
         currencyCode: 'USD',
         email: 'customer@example.com',
         financialStatus: 'PAID',
@@ -81,8 +84,8 @@ describe('mapShopifyOrderNodeToDeliveryInputs', () => {
         shopifyOrderLegacyId: BigInt(123),
         totalPriceAmount: '123.45',
         updatedAtShopify: new Date('2026-05-07T05:00:00.000Z')
-      }
-    });
+      })
+    );
   });
 
   test('returns no delivery stop when an order has no shipping address', () => {
@@ -102,4 +105,114 @@ describe('mapShopifyOrderNodeToDeliveryInputs', () => {
 
     expect(mapped.deliveryStop).toBeNull();
   });
+});
+
+test('normalizes delivery attributes, pickup hints, cancellation, and review reasons from app order snapshots', () => {
+  const mapped = mapShopifyOrderNodeToDeliveryInputs({
+    cancelledAt: '2026-05-08T01:00:00Z',
+    currentTotalPriceSet: {
+      shopMoney: {
+        amount: '95.00',
+        currencyCode: 'CAD'
+      }
+    },
+    customAttributes: [
+      { key: 'Delivery Area', value: 'Mississauga' },
+      { key: 'Delivery Day', value: 'Friday 5pm to 9pm *Check delivery map' },
+      { key: 'Pickup Day', value: 'Friday' }
+    ],
+    displayFinancialStatus: 'PAID',
+    displayFulfillmentStatus: 'UNFULFILLED',
+    email: 'customer@example.com',
+    id: 'gid://shopify/Order/123',
+    legacyResourceId: '123',
+    name: '#1035',
+    note: 'Leave at door',
+    phone: '+14165550000',
+    processedAt: '2026-05-07T12:00:00Z',
+    shippingAddress: {
+      address1: '300 City Centre Dr',
+      address2: '#08',
+      city: 'Mississauga',
+      countryCodeV2: 'CA',
+      latitude: 43.589,
+      longitude: -79.644,
+      name: 'Noah Yoon',
+      phone: '+14165550000',
+      province: 'ON',
+      provinceCode: 'ON',
+      zip: 'L5B 3C1'
+    },
+    updatedAt: '2026-05-07T13:00:00Z'
+  });
+
+  expect(mapped.deliveryStop).toEqual(
+    expect.objectContaining({
+      geocodeStatus: 'RESOLVED',
+      instructions: 'Leave at door',
+      latitude: '43.589',
+      longitude: '-79.644'
+    })
+  );
+  expect(mapped.order).toEqual(
+    expect.objectContaining({
+      cancelledAt: new Date('2026-05-08T01:00:00.000Z'),
+      deliveryArea: 'Mississauga',
+      deliveryDayRaw: 'Friday 5pm to 9pm *Check delivery map',
+      deliveryWeekday: 'FRIDAY',
+      pickup: true,
+      readiness: 'NEEDS_REVIEW',
+      reviewReasons: ['cancelled_order'],
+      serviceType: 'PICKUP',
+      timeWindowEnd: '21:00',
+      timeWindowStart: '17:00'
+    })
+  );
+});
+
+test('marks snapshots with missing delivery metadata and coordinates as needing review', () => {
+  const mapped = mapShopifyOrderNodeToDeliveryInputs({
+    cancelledAt: null,
+    currentTotalPriceSet: null,
+    customAttributes: [{ key: 'Delivery Day', value: 'Someday maybe' }],
+    displayFinancialStatus: null,
+    displayFulfillmentStatus: null,
+    email: null,
+    id: 'gid://shopify/Order/456',
+    legacyResourceId: '456',
+    name: '#1036',
+    note: null,
+    phone: null,
+    processedAt: null,
+    shippingAddress: {
+      address1: null,
+      address2: null,
+      city: null,
+      countryCodeV2: null,
+      latitude: null,
+      longitude: null,
+      name: null,
+      phone: null,
+      province: null,
+      provinceCode: null,
+      zip: null
+    },
+    updatedAt: '2026-05-07T13:00:00Z'
+  });
+
+  expect(mapped.deliveryStop).toEqual(expect.objectContaining({ geocodeStatus: 'PENDING' }));
+  expect(mapped.order).toEqual(
+    expect.objectContaining({
+      deliveryArea: null,
+      deliveryWeekday: null,
+      readiness: 'NEEDS_REVIEW',
+      reviewReasons: [
+        'missing_address',
+        'missing_delivery_area',
+        'delivery_day_parse_failed',
+        'missing_coordinates'
+      ],
+      serviceType: null
+    })
+  );
 });

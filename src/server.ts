@@ -4,15 +4,18 @@ import { buildApp } from './app.js';
 import { loadEnv } from './config/env.js';
 import { loadDriverApiDependencies } from './modules/driver/driver.dependencies.js';
 import { loadAdminRoutePlanDependencies } from './modules/route-plans/route-plan.dependencies.js';
+import { loadAdminOrdersDependencies } from './modules/shopify/order-sync.dependencies.js';
 import { loadShopifyAuthDependencies } from './modules/shopify/auth.dependencies.js';
 import { loadShopifyWebhookDependencies } from './modules/shopify/webhook.dependencies.js';
 import type { AdminRoutePlanDependencies } from './routes/admin-route-plans.routes.js';
+import type { AdminOrdersDependencies } from './routes/admin-orders.routes.js';
 import type { DriverApiDependencies } from './routes/driver-events.routes.js';
 import type { ShopifyAuthDependencies } from './routes/shopify-auth.routes.js';
 import type { ShopifyWebhookDependencies } from './routes/shopify-webhook.routes.js';
 
 const env = loadEnv();
 const prisma = new PrismaClient();
+const adminOrders = loadAdminOrdersDependencies({ env: process.env, prisma });
 const adminRoutePlans = loadAdminRoutePlanDependencies({ env: process.env, prisma });
 const driverApi = loadDriverApiDependencies({ env: process.env, prisma });
 const shopifyAuth = loadShopifyAuthDependencies({ env: process.env, prisma });
@@ -20,6 +23,7 @@ const shopifyWebhook = loadShopifyWebhookDependencies({ env: process.env, prisma
 const logger = env.nodeEnv === 'test' ? false : { level: env.logLevel };
 const app = await buildApp(
   createBuildAppOptions({
+    adminOrders,
     adminRoutePlans,
     corsOrigin: readCorsOrigin(process.env.SHOPIFY_APP_URL),
     driverApi,
@@ -48,6 +52,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 function createBuildAppOptions(input: {
+  adminOrders: AdminOrdersDependencies | undefined;
   adminRoutePlans: AdminRoutePlanDependencies | undefined;
   corsOrigin: false | string;
   driverApi: DriverApiDependencies | undefined;
@@ -55,6 +60,7 @@ function createBuildAppOptions(input: {
   shopifyAuth: ShopifyAuthDependencies | undefined;
   shopifyWebhook: ShopifyWebhookDependencies | undefined;
 }): {
+  adminOrders?: AdminOrdersDependencies;
   adminRoutePlans?: AdminRoutePlanDependencies;
   corsOrigin?: false | string;
   driverApi?: DriverApiDependencies;
@@ -63,6 +69,7 @@ function createBuildAppOptions(input: {
   shopifyWebhook?: ShopifyWebhookDependencies;
 } {
   return {
+    ...(input.adminOrders === undefined ? {} : { adminOrders: input.adminOrders }),
     ...(input.adminRoutePlans === undefined ? {} : { adminRoutePlans: input.adminRoutePlans }),
     corsOrigin: input.corsOrigin,
     ...(input.driverApi === undefined ? {} : { driverApi: input.driverApi }),

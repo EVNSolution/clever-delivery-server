@@ -1,0 +1,231 @@
+import { describe, expect, test, vi } from 'vitest';
+
+import { buildApp } from '../src/app.js';
+import type { CanonicalOrderRow } from '../src/modules/shopify/order-sync.mapper.js';
+import type { AdminOrdersDependencies } from '../src/routes/admin-orders.routes.js';
+
+const canonicalOrder: CanonicalOrderRow = {
+  cancelledAt: null,
+  currencyCode: 'CAD',
+  deliveryArea: 'Mississauga',
+  deliveryDayRaw: 'Friday 5pm to 9pm *Check delivery map',
+  deliveryStopId: 'stop-id',
+  deliveryWeekday: 'FRIDAY',
+  email: 'customer@example.com',
+  financialStatus: 'PAID',
+  fulfillmentStatus: 'UNFULFILLED',
+  geocodeStatus: 'RESOLVED',
+  hasCoordinates: true,
+  latitude: 43.589,
+  longitude: -79.644,
+  name: '#1035',
+  orderId: 'order-id',
+  phone: '+14165550000',
+  pickup: false,
+  planningStatus: 'UNPLANNED',
+  processedAt: '2026-05-07T12:00:00.000Z',
+  readiness: 'READY_TO_PLAN',
+  recipientName: 'Noah Yoon',
+  reviewReasons: [],
+  serviceType: 'EVENING_DELIVERY',
+  shippingAddress: {
+    address1: '300 City Centre Dr',
+    address2: '#08',
+    city: 'Mississauga',
+    countryCode: 'CA',
+    postalCode: 'L5B 3C1',
+    province: 'ON'
+  },
+  shopifyOrderGid: 'gid://shopify/Order/123',
+  shopifyOrderLegacyId: '123',
+  timeWindowEnd: '21:00',
+  timeWindowStart: '17:00',
+  totalPriceAmount: '95.00',
+  updatedAtShopify: '2026-05-07T13:00:00.000Z'
+};
+
+describe('Admin orders routes', () => {
+  test('rejects order sync without a Shopify session token', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const response = await app.inject({
+        method: 'PATCH',
+        payload: orderSyncPayload(),
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'UNAUTHORIZED', message: 'Missing bearer session token' }
+      });
+      expect(syncOrdersSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('syncs Shopify order snapshots for the token shop', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: orderSyncPayload(),
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          orders: [canonicalOrder],
+          sync: {
+            created: 1,
+            needsReview: 0,
+            readyToPlan: 1,
+            received: 1,
+            skipped: 0,
+            unchanged: 0,
+            updated: 0
+          }
+        },
+        error: null
+      });
+      expect(syncOrdersSnapshot).toHaveBeenCalledOnce();
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      expect(syncInput).toBeDefined();
+      if (syncInput === undefined) {
+        throw new Error('Expected sync input');
+      }
+      expect(syncInput.reason).toBe('orders_page_open');
+      expect(syncInput.shopDomain).toBe('example.myshopify.com');
+      expect(syncInput.source).toBe('clever-app-orders');
+      expect(syncInput.subject).toBe('shopify-user-id');
+      expect(syncInput.orders[0]?.id).toBe('gid://shopify/Order/123');
+      expect(syncInput.orders[0]?.customAttributes).toContainEqual({
+        key: 'Delivery Day',
+        value: 'Friday 5pm to 9pm *Check delivery map'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('lists canonical orders with filters for the token shop', async () => {
+    const { dependencies, listCanonicalOrders } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'GET',
+        url: '/admin/orders?readiness=READY_TO_PLAN&planned=false&deliveryWeekday=FRIDAY&serviceType=EVENING_DELIVERY&geocodeStatus=RESOLVED&search=%231035'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ data: { orders: [canonicalOrder] }, error: null });
+      expect(listCanonicalOrders).toHaveBeenCalledWith({
+        filters: {
+          deliveryWeekday: 'FRIDAY',
+          geocodeStatus: 'RESOLVED',
+          planned: false,
+          readiness: 'READY_TO_PLAN',
+          search: '#1035',
+          serviceType: 'EVENING_DELIVERY'
+        },
+        shopDomain: 'example.myshopify.com'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+function createDependencyHarness(): {
+  dependencies: AdminOrdersDependencies;
+  listCanonicalOrders: ReturnType<
+    typeof vi.fn<AdminOrdersDependencies['orderSyncService']['listCanonicalOrders']>
+  >;
+  syncOrdersSnapshot: ReturnType<
+    typeof vi.fn<AdminOrdersDependencies['orderSyncService']['syncOrdersSnapshot']>
+  >;
+} {
+  const verify = vi.fn(() => ({
+    shopDomain: 'example.myshopify.com',
+    subject: 'shopify-user-id'
+  }));
+  const syncOrdersSnapshot = vi.fn<AdminOrdersDependencies['orderSyncService']['syncOrdersSnapshot']>(
+    () =>
+      Promise.resolve({
+        orders: [canonicalOrder],
+        sync: {
+          created: 1,
+          needsReview: 0,
+          readyToPlan: 1,
+          received: 1,
+          skipped: 0,
+          unchanged: 0,
+          updated: 0
+        }
+      })
+  );
+  const listCanonicalOrders = vi.fn<AdminOrdersDependencies['orderSyncService']['listCanonicalOrders']>(
+    () => Promise.resolve([canonicalOrder])
+  );
+
+  return {
+    dependencies: {
+      orderSyncService: {
+        listCanonicalOrders,
+        syncOrdersSnapshot
+      },
+      sessionTokenVerifier: { verify }
+    },
+    listCanonicalOrders,
+    syncOrdersSnapshot
+  };
+}
+
+function orderSyncPayload(): Record<string, unknown> {
+  return {
+    orders: [
+      {
+        cancelledAt: null,
+        currentTotalPriceSet: { shopMoney: { amount: '95.00', currencyCode: 'CAD' } },
+        customAttributes: [
+          { key: 'Delivery Area', value: 'Mississauga' },
+          { key: 'Delivery Day', value: 'Friday 5pm to 9pm *Check delivery map' }
+        ],
+        displayFinancialStatus: 'PAID',
+        displayFulfillmentStatus: 'UNFULFILLED',
+        email: 'customer@example.com',
+        id: 'gid://shopify/Order/123',
+        legacyResourceId: '123',
+        name: '#1035',
+        note: 'Leave at door',
+        phone: '+14165550000',
+        processedAt: '2026-05-07T12:00:00.000Z',
+        shippingAddress: {
+          address1: '300 City Centre Dr',
+          address2: '#08',
+          city: 'Mississauga',
+          countryCodeV2: 'CA',
+          latitude: 43.589,
+          longitude: -79.644,
+          name: 'Noah Yoon',
+          phone: '+14165550000',
+          province: 'ON',
+          provinceCode: 'ON',
+          zip: 'L5B 3C1'
+        },
+        updatedAt: '2026-05-07T13:00:00.000Z'
+      }
+    ],
+    reason: 'orders_page_open',
+    source: 'clever-app-orders'
+  };
+}
