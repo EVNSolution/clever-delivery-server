@@ -1,7 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
-import { RoutePlanOrderAlreadyPlannedError } from '../src/modules/route-plans/route-plan.types.js';
+import {
+  RoutePlanOrderAlreadyPlannedError,
+  RoutePlanStopUpdateInvalidError
+} from '../src/modules/route-plans/route-plan.types.js';
 import type { RoutePlanDetailStop } from '../src/modules/route-plans/route-plan.types.js';
 import type { AdminRoutePlanDependencies } from '../src/routes/admin-route-plans.routes.js';
 
@@ -276,6 +279,7 @@ describe('Admin route plan routes', () => {
       expect(response.json()).toEqual({
         data: {
           routePlan: routePlanSummary,
+          routeGeometry: null,
           stops: [
             expect.objectContaining({ orderName: '#1035', sequence: 1 }),
             expect.objectContaining({ orderName: '#1036', sequence: 2 })
@@ -335,6 +339,239 @@ describe('Admin route plan routes', () => {
     }
   });
 
+  test('rejects route stop updates without a Shopify session token', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        method: 'PATCH',
+        payload: { stops: [] },
+        url: '/admin/route-plans/route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'UNAUTHORIZED', message: 'Missing bearer session token' }
+      });
+      expect(updateRoutePlanStops).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects invalid route stop update payloads before calling the service', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { stops: [{ shopifyOrderGid: '', sequence: 0 }] },
+        url: '/admin/route-plans/route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'BAD_REQUEST', message: 'Invalid route stop update payload' }
+      });
+      expect(updateRoutePlanStops).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+
+  test('updates route plan stops for the token shop', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: {
+          stops: [
+            { deliveryStopId: 'stop-2', shopifyOrderGid: 'gid://shopify/Order/2', sequence: 10 },
+            { shopifyOrderGid: 'gid://shopify/Order/1', sequence: 20 }
+          ]
+        },
+        url: '/admin/route-plans/route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          routePlan: routePlanSummary,
+          routeGeometry: null,
+          stops: [
+            routePlanStop({ orderName: '#1035', sequence: 1 }),
+            routePlanStop({ orderName: '#1036', sequence: 2 })
+          ]
+        },
+        error: null
+      });
+      expect(updateRoutePlanStops).toHaveBeenCalledWith({
+        payload: {
+          stops: [
+            { deliveryStopId: 'stop-2', shopifyOrderGid: 'gid://shopify/Order/2', sequence: 10 },
+            { shopifyOrderGid: 'gid://shopify/Order/1', sequence: 20 }
+          ]
+        },
+        routePlanId: 'route-plan-id',
+        shopDomain: 'example.myshopify.com'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('returns not found when updating stops for a route outside the token shop', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    updateRoutePlanStops.mockResolvedValueOnce(null);
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { stops: [] },
+        url: '/admin/route-plans/other-shop-route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'NOT_FOUND', message: 'Route plan not found' }
+      });
+      expect(updateRoutePlanStops).toHaveBeenCalledWith({
+        payload: { stops: [] },
+        routePlanId: 'other-shop-route-plan-id',
+        shopDomain: 'example.myshopify.com'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects duplicate route stop update payload orders', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    updateRoutePlanStops.mockRejectedValueOnce(new RoutePlanStopUpdateInvalidError('Route stop update payload contains duplicate orders.'));
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: {
+          stops: [
+            { shopifyOrderGid: 'gid://shopify/Order/1', sequence: 1 },
+            { shopifyOrderGid: 'gid://shopify/Order/1', sequence: 2 }
+          ]
+        },
+        url: '/admin/route-plans/route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: {
+          code: 'ROUTE_STOP_UPDATE_INVALID',
+          message: 'Route stop update payload contains duplicate orders.'
+        }
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects route stop update orders that do not belong to the token shop', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    updateRoutePlanStops.mockRejectedValueOnce(
+      new RoutePlanStopUpdateInvalidError('Route stops can only include orders from the current shop.')
+    );
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { stops: [{ shopifyOrderGid: 'gid://shopify/Order/other-shop', sequence: 1 }] },
+        url: '/admin/route-plans/route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: {
+          code: 'ROUTE_STOP_UPDATE_INVALID',
+          message: 'Route stops can only include orders from the current shop.'
+        }
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects wrong-date route stop update orders with a friendly message', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    updateRoutePlanStops.mockRejectedValueOnce(
+      new RoutePlanStopUpdateInvalidError(
+        'Route stops must share the same delivery date as the route. Choose orders for the route delivery date before saving stops.'
+      )
+    );
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { stops: [{ shopifyOrderGid: 'gid://shopify/Order/1', sequence: 1 }] },
+        url: '/admin/route-plans/route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: {
+          code: 'ROUTE_STOP_UPDATE_INVALID',
+          message: 'Route stops must share the same delivery date as the route. Choose orders for the route delivery date before saving stops.'
+        }
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects adding a stop already assigned to another route plan', async () => {
+    const { dependencies, updateRoutePlanStops } = createDependencyHarness();
+    updateRoutePlanStops.mockRejectedValueOnce(new RoutePlanOrderAlreadyPlannedError());
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { stops: [{ shopifyOrderGid: 'gid://shopify/Order/1', sequence: 1 }] },
+        url: '/admin/route-plans/route-plan-id/stops'
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        data: null,
+        error: {
+          code: 'ROUTE_ORDER_ALREADY_PLANNED',
+          message: '이미 다른 Route에 등록된 주문이 포함되어 있어 Route stops를 저장하지 않았습니다. 아직 Route에 없는 주문만 추가해주세요.'
+        }
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   test('deletes a route plan for the token shop', async () => {
     const { dependencies, deleteRoutePlan } = createDependencyHarness();
     const app = await buildApp({ adminRoutePlans: dependencies });
@@ -378,6 +615,9 @@ function createDependencyHarness(): {
   listRoutePlans: ReturnType<
     typeof vi.fn<AdminRoutePlanDependencies['routePlanService']['listRoutePlans']>
   >;
+  updateRoutePlanStops: ReturnType<
+    typeof vi.fn<AdminRoutePlanDependencies['routePlanService']['updateRoutePlanStops']>
+  >;
 } {
   const verify = vi.fn(() => ({
     shopDomain: 'example.myshopify.com',
@@ -394,6 +634,7 @@ function createDependencyHarness(): {
   >(() =>
     Promise.resolve({
       routePlan: routePlanSummary,
+      routeGeometry: null,
       stops: [
         routePlanStop({ orderName: '#1035', sequence: 1 }),
         routePlanStop({ orderName: '#1036', sequence: 2 })
@@ -403,6 +644,18 @@ function createDependencyHarness(): {
   const deleteRoutePlan = vi.fn<
     AdminRoutePlanDependencies['routePlanService']['deleteRoutePlan']
   >(() => Promise.resolve({ routePlanId: 'route-plan-id', deleted: true }));
+  const updateRoutePlanStops = vi.fn<
+    AdminRoutePlanDependencies['routePlanService']['updateRoutePlanStops']
+  >(() =>
+    Promise.resolve({
+      routePlan: routePlanSummary,
+      routeGeometry: null,
+      stops: [
+        routePlanStop({ orderName: '#1035', sequence: 1 }),
+        routePlanStop({ orderName: '#1036', sequence: 2 })
+      ]
+    })
+  );
 
   return {
     createRoutePlan,
@@ -411,7 +664,8 @@ function createDependencyHarness(): {
         createRoutePlan,
         deleteRoutePlan,
         getRoutePlanDetail,
-        listRoutePlans
+        listRoutePlans,
+        updateRoutePlanStops
       },
       sessionTokenVerifier: {
         verify
@@ -419,7 +673,8 @@ function createDependencyHarness(): {
     },
     getRoutePlanDetail,
     deleteRoutePlan,
-    listRoutePlans
+    listRoutePlans,
+    updateRoutePlanStops
   };
 }
 

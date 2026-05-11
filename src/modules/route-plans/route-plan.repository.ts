@@ -1,12 +1,16 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
-import { RoutePlanOrderAlreadyPlannedError } from './route-plan.types.js';
+import {
+  RoutePlanOrderAlreadyPlannedError,
+  RoutePlanStopUpdateInvalidError
+} from './route-plan.types.js';
 import type {
   RoutePlanDepotInput,
   RoutePlanDetail,
   RoutePlanDetailStop,
   RoutePlanOrderAttributeInput,
   RoutePlanOrderInput,
+  UpdateRoutePlanStopsInput,
   RoutePlanShippingAddressInput,
   RoutePlanRouteScopeInput,
   RoutePlanSummary
@@ -23,6 +27,8 @@ type RoutePlanPrismaClient = Pick<
 
 type RoutePlanRecord = {
   createdAt: Date;
+  constraints?: unknown;
+  deliveryDate?: Date | null;
   depotLatitude: unknown;
   depotLongitude: unknown;
   id: string;
@@ -45,6 +51,7 @@ type DeliveryStopRecord = {
   address2: string | null;
   city: string | null;
   countryCode: string | null;
+  deliveryDate?: Date | null;
   id: string;
   latitude: unknown;
   longitude: unknown;
@@ -58,10 +65,13 @@ type DeliveryStopRecord = {
 };
 
 type OrderRecord = {
+  deliveryStops?: DeliveryStopRecord[];
+  email?: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   id: string;
   name: string;
+  phone?: string | null;
   rawPayload: unknown;
   shippingAddress: unknown;
   shopifyOrderGid: string;
@@ -213,6 +223,7 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
     const record = routePlan as RoutePlanRecord;
     return {
       routePlan: toRoutePlanSummary(record),
+      routeGeometry: null,
       stops: [...(record.routeStops ?? [])]
         .sort((left, right) => left.sequence - right.sequence)
         .map((routeStop) => toRoutePlanDetailStop(routeStop))
@@ -252,6 +263,145 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
     return { routePlanId: input.routePlanId, deleted: true };
   }
 
+  async updateRoutePlanStops(input: UpdateRoutePlanStopsInput): Promise<RoutePlanDetail | null> {
+    assertNoDuplicateStopUpdateInputs(input.payload.stops);
+    const normalizedStops = normalizeStopUpdateInputs(input.payload.stops);
+    const shopDomain = normalizeShopDomain(input.shopDomain);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const shop = await tx.shop.findUnique({
+        select: { id: true },
+        where: { shopDomain }
+      });
+      if (shop === null) {
+        return false;
+      }
+
+      const routePlan = (await tx.routePlan.findFirst({
+        include: routePlanInclude(),
+        where: {
+          id: input.routePlanId,
+          shopId: shop.id
+        }
+      })) as RoutePlanRecord | null;
+      if (routePlan === null) {
+        return false;
+      }
+
+      const routeDate = deriveRouteDate(routePlan);
+      const orderGids = normalizedStops.map((stop) => stop.shopifyOrderGid);
+      const orders = (await tx.order.findMany({
+        include: {
+          deliveryStops: {
+            take: 1
+          }
+        },
+        where: {
+          shopId: shop.id,
+          shopifyOrderGid: { in: orderGids }
+        }
+      })) as unknown as OrderRecord[];
+      const ordersByGid = new Map(orders.map((order) => [order.shopifyOrderGid, order]));
+      const missingOrderGids = orderGids.filter((gid) => !ordersByGid.has(gid));
+      if (missingOrderGids.length > 0) {
+        throw new RoutePlanStopUpdateInvalidError('Route stops can only include orders from the current shop.');
+      }
+
+      const wrongDateOrders = normalizedStops.filter((stop) => {
+        const order = ordersByGid.get(stop.shopifyOrderGid);
+        return order !== undefined && readOrderDeliveryDate(order) !== routeDate;
+      });
+      if (wrongDateOrders.length > 0) {
+        throw new RoutePlanStopUpdateInvalidError(
+          'Route stops must share the same delivery date as the route. Choose orders for the route delivery date before saving stops.'
+        );
+      }
+
+      const deliveryStopIds: string[] = [];
+      for (const stopInput of normalizedStops) {
+        const order = ordersByGid.get(stopInput.shopifyOrderGid);
+        if (order === undefined) {
+          throw new RoutePlanStopUpdateInvalidError('Route stops can only include orders from the current shop.');
+        }
+
+        if (stopInput.deliveryStopId !== null) {
+          const deliveryStop = await tx.deliveryStop.findFirst({
+            where: {
+              id: stopInput.deliveryStopId,
+              orderId: order.id,
+              shopId: shop.id
+            }
+          });
+          if (deliveryStop === null) {
+            throw new RoutePlanStopUpdateInvalidError('Route stop does not belong to the selected order.');
+          }
+          deliveryStopIds.push(deliveryStop.id);
+          continue;
+        }
+
+        const deliveryStop = await tx.deliveryStop.upsert({
+          create: {
+            ...toDeliveryStopWriteFromOrder(order, routeDate),
+            orderId: order.id,
+            shopId: shop.id
+          },
+          update: toDeliveryStopWriteFromOrder(order, routeDate),
+          where: {
+            shopId_orderId: {
+              orderId: order.id,
+              shopId: shop.id
+            }
+          }
+        });
+        deliveryStopIds.push(deliveryStop.id);
+      }
+
+      const stopsAssignedElsewhere = await tx.routePlanStop.findMany({
+        select: { deliveryStopId: true },
+        where: {
+          deliveryStopId: { in: deliveryStopIds },
+          routePlanId: { not: input.routePlanId },
+          routePlan: { shopId: shop.id }
+        }
+      });
+      if (stopsAssignedElsewhere.length > 0) {
+        throw new RoutePlanOrderAlreadyPlannedError();
+      }
+
+      await tx.routePlanStop.deleteMany({
+        where: { routePlanId: input.routePlanId }
+      });
+
+      if (deliveryStopIds.length > 0) {
+        await tx.routePlanStop.createMany({
+          data: deliveryStopIds.map((deliveryStopId, index) => ({
+            deliveryStopId,
+            routePlanId: input.routePlanId,
+            sequence: index + 1
+          }))
+        });
+      }
+
+      await tx.routePlan.update({
+        data: {
+          metrics: createMetricsFromOrders(ordersByGid, orderGids, deliveryStopIds.length)
+        },
+        where: { id: input.routePlanId }
+      });
+
+      return true;
+    });
+
+    if (!updated) {
+      return null;
+    }
+
+    return this.findRoutePlanDetail({
+      routePlanId: input.routePlanId,
+      shopDomain: input.shopDomain
+    });
+  }
+
   private async findShop(shopDomain: string): Promise<{ id: string } | null> {
     return this.prisma.shop.findUnique({
       select: { id: true },
@@ -276,6 +426,129 @@ function assertNoDuplicateOrderInputs(orders: RoutePlanOrderInput[]): void {
   if (duplicateOrderNames.length > 0) {
     throw new RoutePlanOrderAlreadyPlannedError(duplicateOrderNames);
   }
+}
+
+function assertNoDuplicateStopUpdateInputs(stops: UpdateRoutePlanStopsInput['payload']['stops']): void {
+  const seenOrderGids = new Set<string>();
+  for (const stop of stops) {
+    if (seenOrderGids.has(stop.shopifyOrderGid)) {
+      throw new RoutePlanStopUpdateInvalidError('Route stop update payload contains duplicate orders.');
+    }
+    seenOrderGids.add(stop.shopifyOrderGid);
+  }
+}
+
+function normalizeStopUpdateInputs(
+  stops: UpdateRoutePlanStopsInput['payload']['stops']
+): Array<{ deliveryStopId: string | null; sequence: number; shopifyOrderGid: string }> {
+  return [...stops]
+    .map((stop, index) => ({ ...stop, originalIndex: index }))
+    .sort((left, right) => left.sequence - right.sequence || left.originalIndex - right.originalIndex)
+    .map((stop, index) => ({
+      deliveryStopId: stop.deliveryStopId ?? null,
+      sequence: index + 1,
+      shopifyOrderGid: stop.shopifyOrderGid
+    }));
+}
+
+function deriveRouteDate(routePlan: RoutePlanRecord): string {
+  const constraints = objectOrNull(routePlan.constraints);
+  const routeScope = objectOrNull(constraints?.routeScope);
+  return (
+    readDateOnlyString(routeScope?.deliveryDate) ??
+    formatDateOnlyNullable(routePlan.deliveryDate ?? null) ??
+    formatDateOnly(routePlan.planDate)
+  );
+}
+
+function readOrderDeliveryDate(order: OrderRecord): string | null {
+  const rawPayload = objectOrNull(order.rawPayload);
+  return readDateOnlyString(rawPayload?.deliveryDate) ?? formatDateOnlyNullable(order.deliveryStops?.[0]?.deliveryDate ?? null);
+}
+
+function toDeliveryStopWriteFromOrder(
+  order: OrderRecord,
+  routeDate: string
+): {
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  countryCode: string | null;
+  deliveryDate: Date;
+  geocodeStatus: 'PENDING' | 'RESOLVED';
+  latitude: string | null;
+  longitude: string | null;
+  phone: string | null;
+  postalCode: string | null;
+  province: string | null;
+  recipientName: string | null;
+  timeWindowEnd: Date | null;
+  timeWindowStart: Date | null;
+} {
+  const shippingAddress = readShippingAddress(order.shippingAddress, order.deliveryStops?.[0] ?? emptyDeliveryStopFallback(order));
+  const rawPayload = objectOrNull(order.rawPayload);
+  const latitude = decimalString(readNumber(rawPayload?.latitude) ?? decimalNumber(order.deliveryStops?.[0]?.latitude));
+  const longitude = decimalString(readNumber(rawPayload?.longitude) ?? decimalNumber(order.deliveryStops?.[0]?.longitude));
+  return {
+    address1: shippingAddress.address1,
+    address2: shippingAddress.address2,
+    city: shippingAddress.city,
+    countryCode: shippingAddress.countryCode,
+    deliveryDate: parsePlanDate(routeDate),
+    geocodeStatus: latitude === null || longitude === null ? 'PENDING' : 'RESOLVED',
+    latitude,
+    longitude,
+    phone: order.phone ?? order.deliveryStops?.[0]?.phone ?? null,
+    postalCode: shippingAddress.postalCode,
+    province: shippingAddress.province,
+    recipientName: readString(rawPayload?.recipientName) ?? order.deliveryStops?.[0]?.recipientName ?? null,
+    timeWindowEnd: parseTorontoTimeWindow(routeDate, readString(rawPayload?.timeWindowEnd)),
+    timeWindowStart: parseTorontoTimeWindow(routeDate, readString(rawPayload?.timeWindowStart))
+  };
+}
+
+function emptyDeliveryStopFallback(order: OrderRecord): DeliveryStopRecord {
+  return {
+    address1: null,
+    address2: null,
+    city: null,
+    countryCode: null,
+    id: '',
+    latitude: null,
+    longitude: null,
+    order,
+    orderId: order.id,
+    phone: null,
+    postalCode: null,
+    province: null,
+    recipientName: null,
+    status: 'PENDING'
+  };
+}
+
+function createMetricsFromOrders(
+  ordersByGid: Map<string, OrderRecord>,
+  orderGids: string[],
+  stopsCount: number
+): Prisma.InputJsonObject {
+  const orders = orderGids.flatMap((gid) => {
+    const order = ordersByGid.get(gid);
+    return order === undefined ? [] : [order];
+  });
+  return {
+    deliveryAreas: uniqueStrings(orders.map((order) => readString(objectOrNull(order.rawPayload)?.deliveryArea))),
+    deliveryDays: uniqueStrings(
+      orders.map((order) => {
+        const rawPayload = objectOrNull(order.rawPayload);
+        return readString(rawPayload?.deliveryDayRaw) ?? readString(rawPayload?.deliveryDay);
+      })
+    ),
+    missingCoordinates: orders.filter((order) => {
+      const stop = order.deliveryStops?.[0] ?? null;
+      return decimalNumber(stop?.latitude) === null || decimalNumber(stop?.longitude) === null;
+    }).length,
+    stopsCount
+  };
 }
 
 function routePlanInclude(): {
@@ -395,6 +668,7 @@ function toRoutePlanSummary(routePlan: RoutePlanRecord, inputOrders?: RoutePlanO
   const metrics = readMetrics(routePlan.metrics, inputOrders, routePlan.routeStops ?? []);
   return {
     createdAt: routePlan.createdAt.toISOString(),
+    deliveryDate: deriveRouteDate(routePlan),
     deliveryAreas: metrics.deliveryAreas,
     deliveryDays: metrics.deliveryDays,
     depot: {
@@ -563,6 +837,23 @@ function readFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function readNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function readDateOnlyString(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    return null;
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : value;
+}
+
 function objectOrNull(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return null;
@@ -609,6 +900,10 @@ function parsePlanDate(value: string): Date {
 
 function formatDateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+function formatDateOnlyNullable(value: Date | null): string | null {
+  return value === null ? null : formatDateOnly(value);
 }
 
 function parseShopifyOrderLegacyId(value: string): bigint | null {

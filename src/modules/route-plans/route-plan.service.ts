@@ -1,9 +1,15 @@
 import type {
   CreateRoutePlanInput,
   RoutePlanDetail,
+  RoutePlanRouteGeometry,
   RoutePlanService,
-  RoutePlanSummary
+  RoutePlanSummary,
+  UpdateRoutePlanStopsInput
 } from './route-plan.types.js';
+
+export type RouteGeometryProvider = {
+  buildRouteGeometry(input: RoutePlanDetail): Promise<RoutePlanRouteGeometry | null>;
+};
 
 export type RoutePlanRepository = {
   createRoutePlanDraft(input: {
@@ -24,10 +30,14 @@ export type RoutePlanRepository = {
     shopDomain: string;
   }): Promise<{ routePlanId: string; deleted: boolean }>;
   listRoutePlans(input: { shopDomain: string }): Promise<RoutePlanSummary[]>;
+  updateRoutePlanStops(input: UpdateRoutePlanStopsInput): Promise<RoutePlanDetail | null>;
 };
 
 export class RoutePlanAdminService implements RoutePlanService {
-  constructor(private readonly repository: RoutePlanRepository) {}
+  constructor(
+    private readonly repository: RoutePlanRepository,
+    private readonly routeGeometryProvider?: RouteGeometryProvider
+  ) {}
 
   createRoutePlan(input: CreateRoutePlanInput): Promise<RoutePlanSummary> {
     return this.repository.createRoutePlanDraft({
@@ -41,11 +51,11 @@ export class RoutePlanAdminService implements RoutePlanService {
     });
   }
 
-  getRoutePlanDetail(input: {
+  async getRoutePlanDetail(input: {
     routePlanId: string;
     shopDomain: string;
   }): Promise<RoutePlanDetail | null> {
-    return this.repository.findRoutePlanDetail(input);
+    return this.withRouteGeometry(await this.repository.findRoutePlanDetail(input));
   }
 
   deleteRoutePlan(input: { routePlanId: string; shopDomain: string }): Promise<{
@@ -57,5 +67,27 @@ export class RoutePlanAdminService implements RoutePlanService {
 
   listRoutePlans(input: { shopDomain: string }): Promise<RoutePlanSummary[]> {
     return this.repository.listRoutePlans(input);
+  }
+
+  async updateRoutePlanStops(input: UpdateRoutePlanStopsInput): Promise<RoutePlanDetail | null> {
+    return this.withRouteGeometry(await this.repository.updateRoutePlanStops(input));
+  }
+
+  private async withRouteGeometry(detail: RoutePlanDetail | null): Promise<RoutePlanDetail | null> {
+    if (detail === null || this.routeGeometryProvider === undefined) {
+      return detail;
+    }
+
+    try {
+      return {
+        ...detail,
+        routeGeometry: await this.routeGeometryProvider.buildRouteGeometry(detail)
+      };
+    } catch {
+      return {
+        ...detail,
+        routeGeometry: null
+      };
+    }
   }
 }

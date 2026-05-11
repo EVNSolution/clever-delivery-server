@@ -1,12 +1,13 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { ShopifySessionTokenVerifier } from '../shopify/session-token-verifier.js';
+import { OsrmRouteGeometryProvider } from './osrm-route-geometry.client.js';
 import { PrismaRoutePlanRepository } from './route-plan.repository.js';
 import { RoutePlanAdminService } from './route-plan.service.js';
 import type { AdminRoutePlanDependencies } from '../../routes/admin-route-plans.routes.js';
 
 export type AdminRoutePlanRuntimeEnv = Partial<
-  Record<'SHOPIFY_API_KEY' | 'SHOPIFY_API_SECRET', string>
+  Record<'OSRM_BASE_URL' | 'SHOPIFY_API_KEY' | 'SHOPIFY_API_SECRET', string>
 >;
 
 export function loadAdminRoutePlanDependencies(input: {
@@ -21,8 +22,11 @@ export function loadAdminRoutePlanDependencies(input: {
   }
 
   const repository = new PrismaRoutePlanRepository(input.prisma);
+  const routeGeometryProvider = new OsrmRouteGeometryProvider({
+    baseUrl: readOptional(input.env.OSRM_BASE_URL)
+  });
   return {
-    routePlanService: new RoutePlanAdminService(repository),
+    routePlanService: new RoutePlanAdminService(repository, routeGeometryProvider),
     sessionTokenVerifier: new ShopifySessionTokenVerifier({
       clientId: apiKey,
       clientSecret: apiSecret
