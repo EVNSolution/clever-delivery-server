@@ -113,9 +113,23 @@ export type RoutePlanDetail = {
 
 export type RoutePlanService = {
   createRoutePlan(input: CreateRoutePlanInput): Promise<RoutePlanSummary>;
+  deleteRoutePlan(input: { routePlanId: string; shopDomain: string }): Promise<{
+    routePlanId: string;
+    deleted: boolean;
+  }>;
   getRoutePlanDetail(input: {
     routePlanId: string;
     shopDomain: string;
   }): Promise<RoutePlanDetail | null>;
   listRoutePlans(input: { shopDomain: string }): Promise<RoutePlanSummary[]>;
 };
+
+export class RoutePlanOrderAlreadyPlannedError extends Error {
+  readonly orderNames: string[];
+
+  constructor(orderNames: string[] = []) {
+    super('Route plan contains orders that are already assigned to a route plan.');
+    this.name = 'RoutePlanOrderAlreadyPlannedError';
+    this.orderNames = orderNames;
+  }
+}

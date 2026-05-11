@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
+import { RoutePlanOrderAlreadyPlannedError } from '../src/modules/route-plans/route-plan.types.js';
 import type { RoutePlanDetailStop } from '../src/modules/route-plans/route-plan.types.js';
 import type { AdminRoutePlanDependencies } from '../src/routes/admin-route-plans.routes.js';
 
@@ -120,6 +121,33 @@ describe('Admin route plan routes', () => {
 
       expect(response.statusCode).toBe(201);
       expect(createRoutePlan).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('returns a conflict when selected orders already belong to a route plan', async () => {
+    const { createRoutePlan, dependencies } = createDependencyHarness();
+    createRoutePlan.mockRejectedValueOnce(new RoutePlanOrderAlreadyPlannedError(['#1035']));
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'POST',
+        payload: routePlanPayload(),
+        url: '/admin/route-plans'
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({
+        data: null,
+        error: {
+          code: 'ROUTE_ORDER_ALREADY_PLANNED',
+          message:
+            '이미 Route에 등록된 주문이 포함되어 있어 새 Route를 만들지 않았습니다. Orders의 기본 Un-routed view에서 아직 Route에 없는 주문만 선택해주세요.'
+        }
+      });
     } finally {
       await app.close();
     }
@@ -285,6 +313,55 @@ describe('Admin route plan routes', () => {
       await app.close();
     }
   });
+
+  test('rejects route plan deletion without a Shopify session token', async () => {
+    const { dependencies, deleteRoutePlan } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: '/admin/route-plans/route-plan-id'
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'UNAUTHORIZED', message: 'Missing bearer session token' }
+      });
+      expect(deleteRoutePlan).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('deletes a route plan for the token shop', async () => {
+    const { dependencies, deleteRoutePlan } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'DELETE',
+        url: '/admin/route-plans/route-plan-id'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          routePlanId: 'route-plan-id',
+          deleted: true
+        },
+        error: null
+      });
+      expect(deleteRoutePlan).toHaveBeenCalledWith({
+        routePlanId: 'route-plan-id',
+        shopDomain: 'example.myshopify.com'
+      });
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 function createDependencyHarness(): {
@@ -294,6 +371,9 @@ function createDependencyHarness(): {
   dependencies: AdminRoutePlanDependencies;
   getRoutePlanDetail: ReturnType<
     typeof vi.fn<AdminRoutePlanDependencies['routePlanService']['getRoutePlanDetail']>
+  >;
+  deleteRoutePlan: ReturnType<
+    typeof vi.fn<AdminRoutePlanDependencies['routePlanService']['deleteRoutePlan']>
   >;
   listRoutePlans: ReturnType<
     typeof vi.fn<AdminRoutePlanDependencies['routePlanService']['listRoutePlans']>
@@ -320,12 +400,16 @@ function createDependencyHarness(): {
       ]
     })
   );
+  const deleteRoutePlan = vi.fn<
+    AdminRoutePlanDependencies['routePlanService']['deleteRoutePlan']
+  >(() => Promise.resolve({ routePlanId: 'route-plan-id', deleted: true }));
 
   return {
     createRoutePlan,
     dependencies: {
       routePlanService: {
         createRoutePlan,
+        deleteRoutePlan,
         getRoutePlanDetail,
         listRoutePlans
       },
@@ -334,6 +418,7 @@ function createDependencyHarness(): {
       }
     },
     getRoutePlanDetail,
+    deleteRoutePlan,
     listRoutePlans
   };
 }

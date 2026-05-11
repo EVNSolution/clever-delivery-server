@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
+import { RoutePlanOrderAlreadyPlannedError } from './route-plan.types.js';
 import type {
   RoutePlanDepotInput,
   RoutePlanDetail,
@@ -82,6 +83,7 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
     const planDate = parsePlanDate(input.planDate);
     const metrics = createMetrics(input.orders);
     const constraints = createConstraints(input.depot, input.routeScope);
+    assertNoDuplicateOrderInputs(input.orders);
 
     return this.prisma.$transaction(async (tx) => {
       const shop = await tx.shop.upsert({
@@ -124,6 +126,25 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
         });
 
         deliveryStopIds.push(deliveryStop.id);
+      }
+
+      const existingRoutePlanStops = await tx.routePlanStop.findMany({
+        select: { deliveryStopId: true },
+        where: {
+          deliveryStopId: { in: deliveryStopIds },
+          routePlan: { shopId: shop.id }
+        }
+      });
+
+      if (existingRoutePlanStops.length > 0) {
+        const duplicateDeliveryStopIds = new Set(
+          existingRoutePlanStops.map((routeStop) => routeStop.deliveryStopId)
+        );
+        const duplicateOrderNames = input.orders
+          .filter((_, orderIndex) => duplicateDeliveryStopIds.has(deliveryStopIds[orderIndex] ?? ''))
+          .map((order) => order.name);
+
+        throw new RoutePlanOrderAlreadyPlannedError(duplicateOrderNames);
       }
 
       const routePlan = await tx.routePlan.create({
@@ -198,11 +219,62 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
     };
   }
 
+  async deleteRoutePlan(input: {
+    routePlanId: string;
+    shopDomain: string;
+  }): Promise<{ routePlanId: string; deleted: boolean }> {
+    const shop = await this.findShop(input.shopDomain);
+    if (shop === null) {
+      return { routePlanId: input.routePlanId, deleted: false };
+    }
+
+    const routePlan = await this.prisma.routePlan.findFirst({
+      select: { id: true },
+      where: {
+        id: input.routePlanId,
+        shopId: shop.id
+      }
+    });
+
+    if (routePlan === null) {
+      return { routePlanId: input.routePlanId, deleted: false };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.routePlanStop.deleteMany({
+        where: { routePlanId: input.routePlanId }
+      });
+      await tx.routePlan.delete({
+        where: { id: input.routePlanId }
+      });
+    });
+
+    return { routePlanId: input.routePlanId, deleted: true };
+  }
+
   private async findShop(shopDomain: string): Promise<{ id: string } | null> {
     return this.prisma.shop.findUnique({
       select: { id: true },
       where: { shopDomain: normalizeShopDomain(shopDomain) }
     });
+  }
+}
+
+function assertNoDuplicateOrderInputs(orders: RoutePlanOrderInput[]): void {
+  const seenOrderGids = new Set<string>();
+  const duplicateOrderNames: string[] = [];
+
+  for (const order of orders) {
+    if (seenOrderGids.has(order.shopifyOrderGid)) {
+      duplicateOrderNames.push(order.name);
+      continue;
+    }
+
+    seenOrderGids.add(order.shopifyOrderGid);
+  }
+
+  if (duplicateOrderNames.length > 0) {
+    throw new RoutePlanOrderAlreadyPlannedError(duplicateOrderNames);
   }
 }
 
