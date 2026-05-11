@@ -28,7 +28,7 @@ jobs:
       REPO_URL: https://github.com/EVNSolution/clever-delivery-server.git
     steps:
       - name: Checkout deploy scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Deploy local EC2 runtime
         run: |
