@@ -4,7 +4,7 @@
 
 **Goal:** Add auditable, documented, and retention-aware location information safeguards to `clever-delivery-server` without over-claiming controls that are not implemented.
 
-**Architecture:** Introduce a small compliance/audit module around existing Fastify route dependencies and Prisma repositories. Keep location audit/usage records separate from operational order/driver tables, sanitize duplicated raw payload coordinates, and add a retention cleanup script that can be run manually first and scheduled later.
+**Architecture:** Introduce a small compliance/audit module around existing Fastify route dependencies and Prisma repositories. Keep permission-change audit records, access logs, and location usage records separate from operational order/driver tables; sanitize duplicated raw payload coordinates for new writes and existing rows; and add retention/backfill scripts that can be run manually first and scheduled later.
 
 **Tech Stack:** Node 22, TypeScript, Fastify, Prisma, PostgreSQL, Vitest, ESLint, GitHub Actions EC2 deployment.
 
@@ -23,7 +23,8 @@ Current implementation facts:
 - Admin auth uses Shopify session token verification in `src/routes/admin-orders.routes.ts` and `src/routes/admin-route-plans.routes.ts`.
 - Driver auth uses bearer JWT verification in `src/routes/driver-events.routes.ts`.
 - Location-bearing DB columns exist in `DeliveryStop`, `RoutePlan`, and `DriverEvent` in `prisma/schema.prisma`.
-- `Order.rawPayload` can duplicate source snapshot fields, including coordinates if present in the incoming app payload.
+- `Order.rawPayload` can duplicate source snapshot fields, including coordinates if present in the incoming app payload; this requires both new-write sanitizing and an existing-row backfill.
+- Access-right grant/change/revoke audit records need a 5-year retention track separate from API access logs and usage records.
 - The Shopify Admin GraphQL query no longer requests `email`, but `Order.email` and email search still exist for legacy/app-supplied values.
 
 ## File structure
@@ -31,25 +32,28 @@ Current implementation facts:
 Create:
 
 - `src/modules/compliance/location-audit.types.ts` — enums and input types for audit/usage records.
-- `src/modules/compliance/location-audit.repository.ts` — Prisma writes and retention cleanup queries.
+- `src/modules/compliance/location-audit.repository.ts` — Prisma writes for permission audits, access logs, usage records, and retention run logs.
 - `src/modules/compliance/location-audit.service.ts` — safe fire-and-forget wrapper for route logging and usage records.
 - `src/modules/compliance/location-audit.dependencies.ts` — dependency loader wiring for production server.
 - `src/modules/compliance/location-retention.service.ts` — retention cleanup implementation.
 - `scripts/location-retention-cleanup.ts` — manual retention cleanup entry point.
+- `scripts/order-raw-payload-sanitize.ts` — dry-run/apply backfill for existing `Order.rawPayload` coordinates/email.
 - `tests/location-audit.repository.test.ts` — repository writes and retention query tests.
 - `tests/location-audit.service.test.ts` — service does not break API requests if audit insert fails.
 - `tests/location-retention.service.test.ts` — coordinate nulling/deletion policy tests.
+- `tests/order-raw-payload-sanitize.test.ts` — rawPayload backfill dry-run/apply tests.
 - `docs/compliance/evidence/location-protection/*.md` — evidence templates.
 
 Modify:
 
-- `prisma/schema.prisma` — add audit/usage/retention models and enums.
+- `prisma/schema.prisma` — add permission-audit/access-log/usage-record/retention-run models and enums.
 - `src/server.ts` — load compliance dependencies.
 - `src/app.ts` — pass optional audit dependency to route modules.
 - `src/routes/admin-orders.routes.ts` — log admin order location reads and sync writes.
 - `src/routes/admin-route-plans.routes.ts` — log route plan location reads/creates.
 - `src/routes/driver-events.routes.ts` — log driver location collection events.
 - `src/modules/shopify/order-sync.repository.ts` — sanitize raw payload before storing and remove email from search.
+- `src/modules/shopify/order-raw-payload-sanitizer.ts` — shared sanitizer for repository writes and backfill script.
 - `src/modules/route-plans/route-plan.repository.ts` — avoid adding coordinates to route plan raw metadata; reuse timezone helper if extracted.
 - `package.json` — add `location:retention:cleanup` script.
 - `docs/deployment/ec2-ebs.md` — document retention command and evidence capture.
@@ -57,7 +61,31 @@ Modify:
 
 ---
 
-### Task 1: Add Prisma audit and usage-record models
+## Development phase summary
+
+| Phase | Work | Output |
+| --- | --- | --- |
+| Phase 1 | DB models/migration for `LocationAccessLog`, `LocationUsageRecord`, `LocationPermissionAudit`, and retention run logging | Prisma models, indexes, model tests |
+| Phase 2 | API logging and request correlation | route-level `AccessLog` and `UsageRecord`, requestId propagation, tenant/driver boundary assertions |
+| Phase 3 | Data minimization | new-write rawPayload sanitizer, existing-row backfill script, email search removal, coordinate scrubbers |
+| Phase 4 | Retention jobs | 400-day access log cleanup, 215-day usage cleanup, 5-year permission audit retention, driver/delivery coordinate anonymization, hold flag support |
+| Phase 5 | Evidence and management safeguards | inventory, auth, network, log, retention, permission audit, annual self-inspection, training/guideline evidence files |
+
+## Automatic recording coverage
+
+| API / operation | `LocationAccessLog` | `LocationUsageRecord` usage kind | Additional record |
+| --- | ---: | --- | --- |
+| `PATCH /admin/orders/sync` | Yes | `COLLECT` | none |
+| `GET /admin/orders` | Yes | `USE` when location-bearing rows are returned | none |
+| `POST /admin/route-plans` | Yes | `USE` | none |
+| `GET /admin/route-plans/:routePlanId` | Yes | `USE` | none |
+| Future driver assigned route/detail reads | Yes | `PROVIDE` or `USE` | 403 denied access log for wrong driver |
+| `POST /driver/events` with `LOCATION_UPDATED` | Yes | `COLLECT` | none |
+| Retention cleanup | Yes | `DELETE` or `ANONYMIZE` | `RetentionJobRun` |
+| rawPayload sanitizer/backfill | Yes | `DELETE` or `CORRECT` | `RetentionJobRun` |
+| Permission grant/change/revoke | Yes | no usage record by default | `LocationPermissionAudit` |
+
+### Task 1: Add Prisma permission-audit, access-log, and usage-record models
 
 **Files:**
 - Modify: `prisma/schema.prisma`
@@ -78,6 +106,7 @@ describe('PrismaLocationAuditRepository', () => {
     const repository = new PrismaLocationAuditRepository({
       locationAccessLog: { create },
       locationUsageRecord: { create: vi.fn() },
+      locationPermissionAudit: { create: vi.fn() },
       retentionJobRun: { create: vi.fn(), update: vi.fn() }
     } as never);
 
@@ -103,6 +132,37 @@ describe('PrismaLocationAuditRepository', () => {
         metadata: { orderCount: 2 },
         result: 'SUCCESS',
         shopId: 'shop-id'
+      })
+    });
+  });
+
+  test('records permission grant/change/revoke audit records with five-year retention', async () => {
+    const create = vi.fn(() => Promise.resolve({ id: 'permission-audit-id' }));
+    const repository = new PrismaLocationAuditRepository({
+      locationAccessLog: { create: vi.fn() },
+      locationUsageRecord: { create: vi.fn() },
+      locationPermissionAudit: { create },
+      retentionJobRun: { create: vi.fn(), update: vi.fn() }
+    } as never);
+
+    await repository.recordPermissionChange({
+      action: 'GRANTED',
+      changedByUserId: 'admin-user-id',
+      nextScope: ['READ_ROUTE_LOCATION'],
+      previousScope: [],
+      reason: 'driver assignment',
+      requestId: 'request-id',
+      shopId: 'shop-id',
+      targetRole: 'DRIVER',
+      targetUserId: 'driver-id'
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'GRANTED',
+        changedByUserId: 'admin-user-id',
+        retentionUntil: expect.any(Date),
+        targetUserId: 'driver-id'
       })
     });
   });
@@ -137,6 +197,22 @@ enum LocationAuditAction {
   READ_ROUTE_PLAN
   RECORD_DRIVER_EVENT
   RUN_RETENTION_CLEANUP
+  RUN_RAW_PAYLOAD_BACKFILL
+}
+
+enum LocationUsageKind {
+  COLLECT
+  USE
+  PROVIDE
+  DELETE
+  ANONYMIZE
+  CORRECT
+}
+
+enum LocationPermissionAuditAction {
+  GRANTED
+  CHANGED
+  REVOKED
 }
 
 enum LocationResourceType {
@@ -185,6 +261,7 @@ model LocationUsageRecord {
   actorType      LocationActorType
   actorId        String?              @db.Text
   action         LocationAuditAction
+  usageKind      LocationUsageKind
   subjectType    LocationResourceType
   subjectId      String?              @db.Text
   sourcePath     String               @db.Text
@@ -200,6 +277,29 @@ model LocationUsageRecord {
   @@index([subjectType, subjectId, occurredAt])
   @@index([retentionUntil])
   @@map("location_usage_records")
+}
+
+
+model LocationPermissionAudit {
+  id              String                        @id @default(uuid()) @db.Uuid
+  shopId          String?                       @db.Uuid
+  shop            Shop?                         @relation(fields: [shopId], references: [id], onDelete: SetNull)
+  targetUserId    String                        @db.Text
+  targetRole      String                        @db.Text
+  action          LocationPermissionAuditAction
+  previousScope   Json
+  nextScope       Json
+  changedByUserId String?                       @db.Text
+  reason          String?                       @db.Text
+  requestId       String?                       @db.Text
+  occurredAt      DateTime                      @default(now()) @db.Timestamptz(6)
+  createdAt       DateTime                      @default(now()) @db.Timestamptz(6)
+  retentionUntil  DateTime                      @db.Timestamptz(6)
+
+  @@index([shopId, occurredAt])
+  @@index([targetUserId, occurredAt])
+  @@index([retentionUntil])
+  @@map("location_permission_audits")
 }
 
 model RetentionJobRun {
@@ -221,8 +321,9 @@ model RetentionJobRun {
 Also add relation arrays to `Shop` if Prisma requires opposite relation fields:
 
 ```prisma
-locationAccessLogs  LocationAccessLog[]
-locationUsageRecords LocationUsageRecord[]
+locationAccessLogs       LocationAccessLog[]
+locationUsageRecords      LocationUsageRecord[]
+locationPermissionAudits  LocationPermissionAudit[]
 ```
 
 - [ ] **Step 4: Validate Prisma schema**
@@ -236,7 +337,7 @@ npm run prisma:validate
 
 Expected: both pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add prisma/schema.prisma tests/location-audit.repository.test.ts
@@ -264,7 +365,10 @@ export type LocationAuditAction =
   | 'CREATE_ROUTE_PLAN'
   | 'READ_ROUTE_PLAN'
   | 'RECORD_DRIVER_EVENT'
-  | 'RUN_RETENTION_CLEANUP';
+  | 'RUN_RETENTION_CLEANUP'
+  | 'RUN_RAW_PAYLOAD_BACKFILL';
+export type LocationUsageKind = 'COLLECT' | 'USE' | 'PROVIDE' | 'DELETE' | 'ANONYMIZE' | 'CORRECT';
+export type LocationPermissionAuditAction = 'GRANTED' | 'CHANGED' | 'REVOKED';
 export type LocationResourceType = 'ORDER' | 'DELIVERY_STOP' | 'ROUTE_PLAN' | 'DRIVER_EVENT' | 'SHOP' | 'SYSTEM';
 export type LocationAuditResult = 'SUCCESS' | 'DENIED' | 'ERROR';
 
@@ -295,6 +399,19 @@ export type RecordLocationUsageInput = {
   sourcePath: string;
   subjectId: string | null;
   subjectType: LocationResourceType;
+  usageKind: LocationUsageKind;
+};
+
+export type RecordLocationPermissionChangeInput = {
+  action: LocationPermissionAuditAction;
+  changedByUserId: string | null;
+  nextScope: string[];
+  previousScope: string[];
+  reason: string | null;
+  requestId: string | null;
+  shopId: string | null;
+  targetRole: string;
+  targetUserId: string;
 };
 ```
 
@@ -305,10 +422,15 @@ Create `src/modules/compliance/location-audit.repository.ts`:
 ```ts
 import type { Prisma, PrismaClient } from '@prisma/client';
 
-import type { RecordLocationAccessInput, RecordLocationUsageInput } from './location-audit.types.js';
+import type {
+  RecordLocationAccessInput,
+  RecordLocationPermissionChangeInput,
+  RecordLocationUsageInput
+} from './location-audit.types.js';
 
 const ACCESS_LOG_RETENTION_DAYS = Number(process.env.LOCATION_ACCESS_LOG_RETENTION_DAYS ?? 400);
 const USAGE_RECORD_RETENTION_DAYS = Number(process.env.LOCATION_USAGE_RECORD_RETENTION_DAYS ?? 215);
+const PERMISSION_AUDIT_RETENTION_DAYS = Number(process.env.LOCATION_PERMISSION_AUDIT_RETENTION_DAYS ?? 1825);
 
 const SENSITIVE_METADATA_KEYS = new Set([
   'address',
@@ -323,7 +445,10 @@ const SENSITIVE_METADATA_KEYS = new Set([
   'shippingAddress'
 ]);
 
-type LocationAuditPrismaClient = Pick<PrismaClient, 'locationAccessLog' | 'locationUsageRecord' | 'retentionJobRun'>;
+type LocationAuditPrismaClient = Pick<
+  PrismaClient,
+  'locationAccessLog' | 'locationUsageRecord' | 'locationPermissionAudit' | 'retentionJobRun'
+>;
 
 export class PrismaLocationAuditRepository {
   constructor(private readonly prisma: LocationAuditPrismaClient) {}
@@ -362,16 +487,32 @@ export class PrismaLocationAuditRepository {
         shopId: input.shopId,
         sourcePath: input.sourcePath,
         subjectId: input.subjectId,
-        subjectType: input.subjectType
+        subjectType: input.subjectType,
+        usageKind: input.usageKind
+      }
+    });
+  }
+
+  recordPermissionChange(input: RecordLocationPermissionChangeInput): Promise<{ id: string }> {
+    return this.prisma.locationPermissionAudit.create({
+      data: {
+        action: input.action,
+        changedByUserId: input.changedByUserId,
+        nextScope: toJson(input.nextScope),
+        previousScope: toJson(input.previousScope),
+        reason: input.reason,
+        requestId: input.requestId,
+        retentionUntil: addDays(new Date(), PERMISSION_AUDIT_RETENTION_DAYS),
+        shopId: input.shopId,
+        targetRole: input.targetRole,
+        targetUserId: input.targetUserId
       }
     });
   }
 }
 
 function sanitizeMetadata(value: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([key]) => !SENSITIVE_METADATA_KEYS.has(key))
-  );
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !SENSITIVE_METADATA_KEYS.has(key)));
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {
@@ -385,7 +526,7 @@ function addDays(value: Date, days: number): Date {
 }
 ```
 
-- [ ] **Step 3: Run repository test**
+- [ ] **Step 3: Run repository tests**
 
 Run:
 
@@ -426,6 +567,7 @@ describe('LocationAuditService', () => {
   test('does not throw when audit repository insert fails', async () => {
     const service = new LocationAuditService({
       recordAccess: vi.fn(() => Promise.reject(new Error('db down'))),
+      recordPermissionChange: vi.fn(() => Promise.reject(new Error('db down'))),
       recordUsage: vi.fn(() => Promise.reject(new Error('db down')))
     });
 
@@ -453,10 +595,11 @@ describe('LocationAuditService', () => {
 Create `src/modules/compliance/location-audit.service.ts`:
 
 ```ts
-import type { RecordLocationAccessInput, RecordLocationUsageInput } from './location-audit.types.js';
+import type { RecordLocationAccessInput, RecordLocationPermissionChangeInput, RecordLocationUsageInput } from './location-audit.types.js';
 
 export type LocationAuditRepository = {
   recordAccess(input: RecordLocationAccessInput): Promise<{ id: string }>;
+  recordPermissionChange(input: RecordLocationPermissionChangeInput): Promise<{ id: string }>;
   recordUsage(input: RecordLocationUsageInput): Promise<{ id: string }>;
 };
 
@@ -468,6 +611,14 @@ export class LocationAuditService {
       await this.repository.recordAccess(input);
     } catch {
       // Audit logging must not break the operational API path.
+    }
+  }
+
+  async recordPermissionChange(input: RecordLocationPermissionChangeInput): Promise<void> {
+    try {
+      await this.repository.recordPermissionChange(input);
+    } catch {
+      // Permission audit logging must not break the operational API path.
     }
   }
 
@@ -541,6 +692,7 @@ For each route dependency type, add optional dependency:
 ```ts
 locationAudit?: {
   recordAccess(input: RecordLocationAccessInput): Promise<void>;
+  recordPermissionChange(input: RecordLocationPermissionChangeInput): Promise<void>;
   recordUsage(input: RecordLocationUsageInput): Promise<void>;
 };
 ```
@@ -586,6 +738,28 @@ await dependencies.locationAudit?.recordAccess({
 });
 ```
 
+Also create a usage record when returned rows include address/coordinate-bearing delivery stop data:
+
+```ts
+if (orders.some((order) => order.hasCoordinates || order.shippingAddress !== null)) {
+  await dependencies.locationAudit?.recordUsage({
+    action: 'READ_ADMIN_ORDERS',
+    usageKind: 'USE',
+    actorId: authenticated.subject,
+    actorType: 'ADMIN',
+    metadata: { orderCount: orders.length, filters },
+    purpose: 'Review canonical orders and delivery stop locations',
+    recipientId: authenticated.subject,
+    recipientType: 'ADMIN',
+    routeScopeKey: filters.routeScopeKey ?? null,
+    shopId: null,
+    sourcePath: '/admin/orders',
+    subjectId: null,
+    subjectType: 'ORDER'
+  });
+}
+```
+
 Because current route auth returns `shopDomain` but not `shopId`, store `shopId: null` in route-level logging until dependency can resolve shop id. Repository-level logging can fill shop id later if needed.
 
 - [ ] **Step 4: Log `PATCH /admin/orders/sync`**
@@ -593,8 +767,23 @@ Because current route auth returns `shopDomain` but not `shopId`, store `shopId:
 After sync result:
 
 ```ts
+await dependencies.locationAudit?.recordAccess({
+  action: 'SYNC_ORDERS',
+  actorId: authenticated.subject,
+  actorType: 'ADMIN',
+  ipAddress: requestIp(request.headers, request.ip),
+  metadata: { received: result.sync.received },
+  resourceId: null,
+  resourceType: 'ORDER',
+  result: 'SUCCESS',
+  routeScopeKey: null,
+  shopId: null,
+  userAgent: userAgent(request.headers)
+});
+
 await dependencies.locationAudit?.recordUsage({
   action: 'SYNC_ORDERS',
+  usageKind: 'COLLECT',
   actorId: authenticated.subject,
   actorType: 'ADMIN',
   metadata: { received: result.sync.received, readyToPlan: result.sync.readyToPlan, needsReview: result.sync.needsReview },
@@ -613,13 +802,40 @@ await dependencies.locationAudit?.recordUsage({
 
 For `POST /admin/route-plans`, log `CREATE_ROUTE_PLAN` access and usage with `routeScope.routeScopeKey ?? null`. For detail reads, log `READ_ROUTE_PLAN` with `resourceId: request.params.routePlanId`.
 
-- [ ] **Step 6: Log driver event location collection**
+- [ ] **Step 6: Add route tests for endpoint-by-endpoint coverage**
 
-For `POST /driver/events`, when `eventInput.latitude !== null || eventInput.longitude !== null`, call usage logging:
+Cover these cases explicitly:
+
+```text
+[ ] admin order list creates LocationAccessLog and LocationUsageRecord(USE) when rows include location data
+[ ] admin route detail creates LocationAccessLog and LocationUsageRecord(USE)
+[ ] route plan create creates LocationAccessLog and LocationUsageRecord(USE)
+[ ] driver LOCATION_UPDATED creates LocationAccessLog and LocationUsageRecord(COLLECT)
+[ ] denied tenant/driver access creates LocationAccessLog(result=DENIED) once driver read APIs exist
+```
+
+- [ ] **Step 7: Log driver event location collection**
+
+For `POST /driver/events`, when `eventInput.latitude !== null || eventInput.longitude !== null`, call access and usage logging:
 
 ```ts
+await dependencies.locationAudit?.recordAccess({
+  action: 'RECORD_DRIVER_EVENT',
+  actorId: driverContext.driverId,
+  actorType: 'DRIVER',
+  ipAddress: requestIp(request.headers, request.ip),
+  metadata: { eventType: eventInput.eventType },
+  resourceId: result.eventId,
+  resourceType: 'DRIVER_EVENT',
+  result: 'SUCCESS',
+  routeScopeKey: null,
+  shopId: null,
+  userAgent: userAgent(request.headers)
+});
+
 await dependencies.locationAudit?.recordUsage({
   action: 'RECORD_DRIVER_EVENT',
+  usageKind: 'COLLECT',
   actorId: driverContext.driverId,
   actorType: 'DRIVER',
   metadata: { eventType: eventInput.eventType, duplicate: result.duplicate },
@@ -634,7 +850,7 @@ await dependencies.locationAudit?.recordUsage({
 });
 ```
 
-- [ ] **Step 7: Add route tests**
+- [ ] **Step 8: Add route tests**
 
 In each route test harness, add `locationAudit` mocks and assert relevant calls. Example for admin orders list:
 
@@ -649,7 +865,7 @@ expect(locationAudit.recordAccess).toHaveBeenCalledWith(
 );
 ```
 
-- [ ] **Step 8: Run route tests**
+- [ ] **Step 9: Run route tests**
 
 ```bash
 npm test -- tests/admin-orders.routes.test.ts tests/admin-route-plans.routes.test.ts tests/driver-events.routes.test.ts
@@ -657,7 +873,7 @@ npm test -- tests/admin-orders.routes.test.ts tests/admin-route-plans.routes.tes
 
 Expected: pass.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/routes/admin-orders.routes.ts src/routes/admin-route-plans.routes.ts src/routes/driver-events.routes.ts tests/admin-orders.routes.test.ts tests/admin-route-plans.routes.test.ts tests/driver-events.routes.test.ts
@@ -666,13 +882,15 @@ git commit -m "Log location access in API routes"
 
 ---
 
-### Task 5: Sanitize raw payload and remove email search
+### Task 5: Sanitize new raw payloads, remove email search, and backfill existing raw payloads
 
 **Files:**
+- Create: `src/modules/shopify/order-raw-payload-sanitizer.ts`
+- Create: `scripts/order-raw-payload-sanitize.ts`
 - Modify: `src/modules/shopify/order-sync.repository.ts`
-- Modify: `src/modules/shopify/order-sync.mapper.ts` if raw payload is better sanitized before repository
+- Modify: `package.json`
 - Test: `tests/order-sync.repository.test.ts`
-- Test: `tests/shopify-order-sync.mapper.test.ts`
+- Test: `tests/order-raw-payload-sanitize.test.ts`
 
 - [ ] **Step 1: Add failing tests**
 
@@ -686,11 +904,7 @@ expect(prisma.order.upsert).toHaveBeenCalledWith(
     })
   })
 );
-```
 
-Also check nested shipping address:
-
-```ts
 const rawPayload = (prisma.order.upsert.mock.calls[0]?.[0] as { create: { rawPayload: unknown } }).create.rawPayload;
 expect(rawPayload).toEqual(
   expect.objectContaining({
@@ -712,12 +926,36 @@ expect(prisma.order.findMany).toHaveBeenCalledWith(
 );
 ```
 
-- [ ] **Step 2: Implement sanitizer**
-
-In `src/modules/shopify/order-sync.repository.ts`:
+Create `tests/order-raw-payload-sanitize.test.ts`:
 
 ```ts
-function sanitizeOrderRawPayload(value: unknown): Prisma.InputJsonValue {
+import { describe, expect, test } from 'vitest';
+
+import { sanitizeOrderRawPayloadObject, hasSensitiveOrderRawPayload } from '../src/modules/shopify/order-raw-payload-sanitizer.js';
+
+describe('order raw payload sanitizer', () => {
+  test('removes email and duplicated shipping coordinates but keeps operational scope fields', () => {
+    const raw = {
+      email: 'customer@example.com',
+      routeScopeKey: '2026-05-08|DELIVERY||',
+      shippingAddress: { address1: '123 Main', latitude: 43.1, longitude: -79.1, zip: 'M1M1M1' }
+    };
+
+    expect(hasSensitiveOrderRawPayload(raw)).toBe(true);
+    expect(sanitizeOrderRawPayloadObject(raw)).toEqual({
+      routeScopeKey: '2026-05-08|DELIVERY||',
+      shippingAddress: { address1: '123 Main', zip: 'M1M1M1' }
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Implement shared sanitizer**
+
+Create `src/modules/shopify/order-raw-payload-sanitizer.ts`:
+
+```ts
+export function sanitizeOrderRawPayloadObject(value: unknown): Record<string, unknown> {
   const raw = objectOrNull(value) ?? {};
   const shippingAddress = objectOrNull(raw.shippingAddress);
   const sanitizedShippingAddress = shippingAddress === null
@@ -725,20 +963,47 @@ function sanitizeOrderRawPayload(value: unknown): Prisma.InputJsonValue {
     : Object.fromEntries(
         Object.entries(shippingAddress).filter(([key]) => key !== 'latitude' && key !== 'longitude')
       );
-  const sanitized = Object.fromEntries(
+  return Object.fromEntries(
     Object.entries({ ...raw, shippingAddress: sanitizedShippingAddress }).filter(([key]) => key !== 'email')
   );
-  return toJson(sanitized);
+}
+
+export function hasSensitiveOrderRawPayload(value: unknown): boolean {
+  const raw = objectOrNull(value);
+  const shippingAddress = objectOrNull(raw?.shippingAddress);
+  return raw?.email !== undefined || shippingAddress?.latitude !== undefined || shippingAddress?.longitude !== undefined;
+}
+
+function objectOrNull(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 ```
 
-Change `toOrderWrite`:
+Change `toOrderWrite` in `src/modules/shopify/order-sync.repository.ts`:
 
 ```ts
-rawPayload: sanitizeOrderRawPayload(input.rawPayload),
+rawPayload: toJson(sanitizeOrderRawPayloadObject(input.rawPayload)),
 ```
 
-- [ ] **Step 3: Remove email search**
+- [ ] **Step 3: Add existing-row rawPayload backfill script**
+
+Create `scripts/order-raw-payload-sanitize.ts` with `--dry-run` as the default and `--apply` for writes. The script must:
+
+```text
+1. Find orders whose rawPayload contains email, shippingAddress.latitude, or shippingAddress.longitude.
+2. In dry-run mode, print JSON counts and sample order ids only.
+3. In apply mode, write sanitized rawPayload and create a retention/backfill run log.
+4. Never print raw coordinates, full addresses, phone numbers, or emails.
+```
+
+Add package script:
+
+```json
+"orders:raw-payload:sanitize": "tsx scripts/order-raw-payload-sanitize.ts"
+```
+
+- [ ] **Step 4: Remove email search**
 
 In `toOrderWhere`, replace:
 
@@ -759,18 +1024,18 @@ where.OR = [
 ];
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 5: Run tests**
 
 ```bash
-npm test -- tests/order-sync.repository.test.ts tests/shopify-order-sync.mapper.test.ts
+npm test -- tests/order-sync.repository.test.ts tests/order-raw-payload-sanitize.test.ts
 ```
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/modules/shopify/order-sync.repository.ts src/modules/shopify/order-sync.mapper.ts tests/order-sync.repository.test.ts tests/shopify-order-sync.mapper.test.ts
+git add src/modules/shopify/order-raw-payload-sanitizer.ts scripts/order-raw-payload-sanitize.ts src/modules/shopify/order-sync.repository.ts tests/order-sync.repository.test.ts tests/order-raw-payload-sanitize.test.ts package.json
 git commit -m "Minimize stored Shopify location payloads"
 ```
 
@@ -794,11 +1059,13 @@ import { describe, expect, test, vi } from 'vitest';
 import { LocationRetentionService } from '../src/modules/compliance/location-retention.service.js';
 
 describe('LocationRetentionService', () => {
-  test('deletes expired access and usage records and anonymizes old driver coordinates', async () => {
+  test('deletes expired logs and anonymizes old driver and delivery stop coordinates', async () => {
     const prisma = {
+      deliveryStop: { updateMany: vi.fn(() => Promise.resolve({ count: 2 })) },
       driverEvent: { updateMany: vi.fn(() => Promise.resolve({ count: 3 })) },
       locationAccessLog: { deleteMany: vi.fn(() => Promise.resolve({ count: 4 })) },
       locationUsageRecord: { deleteMany: vi.fn(() => Promise.resolve({ count: 5 })) },
+      locationPermissionAudit: { deleteMany: vi.fn(() => Promise.resolve({ count: 1 })) },
       retentionJobRun: {
         create: vi.fn(() => Promise.resolve({ id: 'job-id' })),
         update: vi.fn(() => Promise.resolve({ id: 'job-id' }))
@@ -808,11 +1075,12 @@ describe('LocationRetentionService', () => {
 
     const result = await service.runCleanup();
 
-    expect(result).toEqual({ anonymizedCount: 3, deletedCount: 9, jobRunId: 'job-id' });
+    expect(result).toEqual({ anonymizedCount: 5, deletedCount: 10, jobRunId: 'job-id' });
     expect(prisma.driverEvent.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ latitude: null, longitude: null })
-      })
+      expect.objectContaining({ data: expect.objectContaining({ latitude: null, longitude: null }) })
+    );
+    expect(prisma.deliveryStop.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ latitude: null, longitude: null }) })
     );
   });
 });
@@ -823,13 +1091,19 @@ describe('LocationRetentionService', () => {
 Create `src/modules/compliance/location-retention.service.ts`:
 
 ```ts
-import type { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 
 const DRIVER_LOCATION_EVENT_RETENTION_DAYS = Number(process.env.DRIVER_LOCATION_EVENT_RETENTION_DAYS ?? 90);
+const DELIVERY_STOP_COORDINATE_RETENTION_DAYS = Number(process.env.DELIVERY_STOP_COORDINATE_RETENTION_DAYS ?? 180);
 
 type RetentionPrismaClient = Pick<
   PrismaClient,
-  'driverEvent' | 'locationAccessLog' | 'locationUsageRecord' | 'retentionJobRun'
+  | 'deliveryStop'
+  | 'driverEvent'
+  | 'locationAccessLog'
+  | 'locationUsageRecord'
+  | 'locationPermissionAudit'
+  | 'retentionJobRun'
 >;
 
 export class LocationRetentionService {
@@ -846,40 +1120,34 @@ export class LocationRetentionService {
     try {
       const now = this.now();
       const driverCutoff = addDays(now, -DRIVER_LOCATION_EVENT_RETENTION_DAYS);
-      const accessDeleted = await this.prisma.locationAccessLog.deleteMany({
-        where: { retentionUntil: { lt: now } }
-      });
-      const usageDeleted = await this.prisma.locationUsageRecord.deleteMany({
-        where: { retentionUntil: { lt: now } }
+      const deliveryStopCutoff = addDays(now, -DELIVERY_STOP_COORDINATE_RETENTION_DAYS);
+      const accessDeleted = await this.prisma.locationAccessLog.deleteMany({ where: { retentionUntil: { lt: now } } });
+      const usageDeleted = await this.prisma.locationUsageRecord.deleteMany({ where: { retentionUntil: { lt: now } } });
+      const permissionDeleted = await this.prisma.locationPermissionAudit.deleteMany({ where: { retentionUntil: { lt: now } } });
+      const deliveryStopsAnonymized = await this.prisma.deliveryStop.updateMany({
+        data: { latitude: null, longitude: null },
+        where: {
+          deliveryDate: { lt: deliveryStopCutoff },
+          OR: [{ latitude: { not: null } }, { longitude: { not: null } }]
+        }
       });
       const driverAnonymized = await this.prisma.driverEvent.updateMany({
-        data: {
-          latitude: null,
-          longitude: null,
-          payload: Prisma.JsonNull
-        },
+        data: { latitude: null, longitude: null, payload: Prisma.JsonNull },
         where: {
           eventType: 'LOCATION_UPDATED',
           occurredAt: { lt: driverCutoff },
           OR: [{ latitude: { not: null } }, { longitude: { not: null } }]
         }
       });
+      const anonymizedCount = driverAnonymized.count + deliveryStopsAnonymized.count;
+      const deletedCount = accessDeleted.count + usageDeleted.count + permissionDeleted.count;
 
       await this.prisma.retentionJobRun.update({
-        data: {
-          anonymizedCount: driverAnonymized.count,
-          deletedCount: accessDeleted.count + usageDeleted.count,
-          finishedAt: now,
-          status: 'SUCCESS'
-        },
+        data: { anonymizedCount, deletedCount, finishedAt: now, status: 'SUCCESS' },
         where: { id: started.id }
       });
 
-      return {
-        anonymizedCount: driverAnonymized.count,
-        deletedCount: accessDeleted.count + usageDeleted.count,
-        jobRunId: started.id
-      };
+      return { anonymizedCount, deletedCount, jobRunId: started.id };
     } catch (error) {
       await this.prisma.retentionJobRun.update({
         data: {
@@ -952,11 +1220,15 @@ git commit -m "Add location retention cleanup"
 ### Task 7: Add evidence templates and deployment/runbook updates
 
 **Files:**
+- Create: `docs/compliance/evidence/location-protection/00-location-data-inventory.md`
 - Create: `docs/compliance/evidence/location-protection/01-access-authentication.md`
 - Create: `docs/compliance/evidence/location-protection/02-network-encryption-firewall.md`
 - Create: `docs/compliance/evidence/location-protection/03-access-log-and-usage-records.md`
 - Create: `docs/compliance/evidence/location-protection/04-security-programs-monitoring.md`
 - Create: `docs/compliance/evidence/location-protection/05-retention-and-deletion-runs.md`
+- Create: `docs/compliance/evidence/location-protection/06-permission-grant-change-revoke-audit.md`
+- Create: `docs/compliance/evidence/location-protection/07-annual-self-inspection.md`
+- Create: `docs/compliance/evidence/location-protection/08-training-and-handler-guideline.md`
 - Modify: `docs/deployment/ec2-ebs.md`
 - Modify: `docs/compliance/location-data-handling.md`
 
@@ -1034,6 +1306,7 @@ npm run lint
 npm run typecheck
 npm run build
 npm run check:workspace
+npm run orders:raw-payload:sanitize -- --dry-run
 git diff --check
 ```
 
@@ -1080,7 +1353,7 @@ Use the repo’s normal PR-to-`dev` flow. After merge, watch the EC2 deployment 
 
 ## Self-review
 
-- Spec coverage: plan covers inventory, data handling, access/usage logging, retention periods, deletion/anonymization, evidence docs, and current risky claims to avoid.
+- Spec coverage: plan covers inventory, data handling, permission grant/change/revoke auditing, access/usage logging, endpoint-level automatic recording, rawPayload new-write sanitizing plus existing-row backfill, retention periods, deletion/anonymization, management evidence docs, and current risky claims to avoid.
 - Placeholder scan: no `TBD`, `TODO`, or unspecified implementation tasks remain.
 - Type consistency: route tasks use `RecordLocationAccessInput` / `RecordLocationUsageInput`; Prisma model enums match TypeScript string unions.
 - Known implementation risk: Prisma `payload: Prisma.JsonNull` for old driver events removes full payload, not just coordinate keys. If payload contains useful non-location event data, replace with a JSON sanitizer before implementation.
