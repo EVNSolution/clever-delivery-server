@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 
+import { RoutePlanOrderAlreadyPlannedError } from '../modules/route-plans/route-plan.types.js';
 import type {
   CreateRoutePlanPayload,
   RoutePlanOrderAttributeInput,
@@ -38,11 +39,27 @@ export function registerAdminRoutePlanRoutes(
       return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid route plan payload'));
     }
 
-    const routePlan = await dependencies.routePlanService.createRoutePlan({
-      createdBy: authenticated.subject,
-      payload,
-      shopDomain: authenticated.shopDomain
-    });
+    let routePlan;
+    try {
+      routePlan = await dependencies.routePlanService.createRoutePlan({
+        createdBy: authenticated.subject,
+        payload,
+        shopDomain: authenticated.shopDomain
+      });
+    } catch (error) {
+      if (error instanceof RoutePlanOrderAlreadyPlannedError) {
+        return reply
+          .code(409)
+          .send(
+            errorResponse(
+              'ROUTE_ORDER_ALREADY_PLANNED',
+              '이미 Route에 등록된 주문이 포함되어 있어 새 Route를 만들지 않았습니다. Orders의 기본 Un-routed view에서 아직 Route에 없는 주문만 선택해주세요.'
+            )
+          );
+      }
+
+      throw error;
+    }
 
     return reply.code(201).send({
       data: { routePlan },
@@ -84,6 +101,26 @@ export function registerAdminRoutePlanRoutes(
 
       return reply.code(200).send({
         data: detail,
+        error: null
+      });
+    }
+  );
+
+  app.delete<{ Params: { routePlanId: string } }>(
+    '/admin/route-plans/:routePlanId',
+    async (request, reply) => {
+      const authenticated = authenticate(request.headers.authorization, dependencies);
+      if (authenticated.status === 'unauthorized') {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', authenticated.message));
+      }
+
+      const result = await dependencies.routePlanService.deleteRoutePlan({
+        routePlanId: request.params.routePlanId,
+        shopDomain: authenticated.shopDomain
+      });
+
+      return reply.code(200).send({
+        data: result,
         error: null
       });
     }

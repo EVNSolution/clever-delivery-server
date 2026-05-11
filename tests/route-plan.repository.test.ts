@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { PrismaRoutePlanRepository } from '../src/modules/route-plans/route-plan.repository.js';
+import { RoutePlanOrderAlreadyPlannedError } from '../src/modules/route-plans/route-plan.types.js';
 import type { RoutePlanOrderInput } from '../src/modules/route-plans/route-plan.types.js';
 
 describe('PrismaRoutePlanRepository', () => {
@@ -82,9 +83,102 @@ describe('PrismaRoutePlanRepository', () => {
       })
     );
   });
+
+  test('rejects route plan drafts when a selected order already belongs to another route plan', async () => {
+    const { prisma, routePlanStopCreateMany } = createPrismaHarness({
+      existingRoutePlanStops: [{ deliveryStopId: 'stop-1' }]
+    });
+    const repository = new PrismaRoutePlanRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaRoutePlanRepository>[0]
+    );
+
+    await expect(
+      repository.createRoutePlanDraft({
+        createdBy: 'shopify-user-id',
+        depot: {
+          address: 'Shopify departure location',
+          latitude: 43.6532,
+          longitude: -79.3832
+        },
+        name: 'Tomatono route draft',
+        orders: [
+          routePlanOrder({ gid: 'gid://shopify/Order/123', name: '#1035' }),
+          routePlanOrder({ gid: 'gid://shopify/Order/124', name: '#1036' })
+        ],
+        planDate: '2026-05-08',
+        shopDomain: 'Example.myshopify.com'
+      })
+    ).rejects.toBeInstanceOf(RoutePlanOrderAlreadyPlannedError);
+
+    expect(prisma.routePlanStop.findMany).toHaveBeenCalledWith({
+      select: { deliveryStopId: true },
+      where: {
+        deliveryStopId: { in: ['stop-1', 'stop-2'] },
+        routePlan: { shopId: 'shop-id' }
+      }
+    });
+    expect(prisma.routePlan.create).not.toHaveBeenCalled();
+    expect(routePlanStopCreateMany).not.toHaveBeenCalled();
+  });
+
+  test('deletes route-plan stops first and then deletes the route plan within shop scope', async () => {
+    const { prisma } = createPrismaHarness();
+    const repository = new PrismaRoutePlanRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaRoutePlanRepository>[0]
+    );
+
+    const result = await repository.deleteRoutePlan({
+      routePlanId: 'route-plan-id',
+      shopDomain: 'example.myshopify.com'
+    });
+
+    expect(result).toEqual({
+      routePlanId: 'route-plan-id',
+      deleted: true
+    });
+    expect(prisma.routePlan.findFirst).toHaveBeenCalledWith({
+      select: { id: true },
+      where: { id: 'route-plan-id', shopId: 'shop-id' }
+    });
+    expect(prisma.routePlanStop.deleteMany).toHaveBeenCalledWith({
+      where: { routePlanId: 'route-plan-id' }
+    });
+    expect(prisma.routePlan.delete).toHaveBeenCalledWith({
+      where: { id: 'route-plan-id' }
+    });
+    expect(prisma.routePlan.delete).toHaveBeenCalledTimes(1);
+  });
+
+  test('returns deleted:false when no matching route plan is found for this shop', async () => {
+    const { prisma } = createPrismaHarness({
+      routePlanToDelete: null
+    });
+    const repository = new PrismaRoutePlanRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaRoutePlanRepository>[0]
+    );
+
+    const result = await repository.deleteRoutePlan({
+      routePlanId: 'route-plan-id',
+      shopDomain: 'example.myshopify.com'
+    });
+
+    expect(result).toEqual({
+      routePlanId: 'route-plan-id',
+      deleted: false
+    });
+    expect(prisma.routePlan.findFirst).toHaveBeenCalledWith({
+      select: { id: true },
+      where: { id: 'route-plan-id', shopId: 'shop-id' }
+    });
+    expect(prisma.routePlanStop.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.routePlan.delete).not.toHaveBeenCalled();
+  });
 });
 
-function createPrismaHarness(): {
+function createPrismaHarness(input: {
+  existingRoutePlanStops?: Array<{ deliveryStopId: string }>;
+  routePlanToDelete?: { id: string } | null;
+} = {}): {
   prisma: {
     $transaction: ReturnType<typeof vi.fn>;
     deliveryStop: {
@@ -97,9 +191,12 @@ function createPrismaHarness(): {
       create: ReturnType<typeof vi.fn>;
       findFirst: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
     };
     routePlanStop: {
       createMany: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
+      deleteMany: ReturnType<typeof vi.fn>;
     };
     shop: {
       findUnique: ReturnType<typeof vi.fn>;
@@ -143,6 +240,30 @@ function createPrismaHarness(): {
         })
       ),
       findFirst: vi.fn(() =>
+        input.routePlanToDelete !== undefined
+          ? input.routePlanToDelete === null
+            ? Promise.resolve(null)
+            : Promise.resolve(input.routePlanToDelete)
+          : Promise.resolve({
+              createdAt: new Date('2026-05-07T12:30:00.000Z'),
+              depotLatitude: '43.6532',
+              depotLongitude: '-79.3832',
+              id: 'route-plan-id',
+              metrics: {
+                deliveryAreas: ['Mississauga'],
+                deliveryDays: ['Thursday'],
+                missingCoordinates: 0,
+                stopsCount: 0
+              },
+              name: 'Tomatono route draft',
+              planDate: new Date('2026-05-08T00:00:00.000Z'),
+              routeStops: [],
+              status: 'DRAFT',
+              updatedAt: new Date('2026-05-07T12:30:00.000Z')
+            })
+      ),
+      findMany: vi.fn(() => Promise.resolve([])),
+      delete: vi.fn(() =>
         Promise.resolve({
           createdAt: new Date('2026-05-07T12:30:00.000Z'),
           depotLatitude: '43.6532',
@@ -152,19 +273,19 @@ function createPrismaHarness(): {
             deliveryAreas: ['Mississauga'],
             deliveryDays: ['Thursday'],
             missingCoordinates: 0,
-            stopsCount: 0
+            stopsCount: 2
           },
           name: 'Tomatono route draft',
           planDate: new Date('2026-05-08T00:00:00.000Z'),
-          routeStops: [],
           status: 'DRAFT',
           updatedAt: new Date('2026-05-07T12:30:00.000Z')
         })
-      ),
-      findMany: vi.fn(() => Promise.resolve([]))
+      )
     },
     routePlanStop: {
-      createMany: routePlanStopCreateMany
+      createMany: routePlanStopCreateMany,
+      findMany: vi.fn(() => Promise.resolve(input.existingRoutePlanStops ?? [])),
+      deleteMany: vi.fn(() => Promise.resolve({ count: 2 }))
     },
     shop: {
       findUnique: vi.fn(() => Promise.resolve({ id: 'shop-id' })),
