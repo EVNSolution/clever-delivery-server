@@ -70,6 +70,7 @@ export type CreateRoutePlanInput = {
 
 export type RoutePlanSummary = {
   createdAt: string;
+  deliveryDate?: string | null;
   deliveryAreas: string[];
   deliveryDays: string[];
   depot: {
@@ -106,8 +107,28 @@ export type RoutePlanDetailStop = {
   status: string;
 };
 
+export type RoutePlanRouteGeometry = {
+  coordinates: Array<[number, number]>;
+  type: 'LineString';
+};
+
+export type UpdateRoutePlanStopsPayload = {
+  stops: Array<{
+    deliveryStopId?: string | null | undefined;
+    sequence: number;
+    shopifyOrderGid: string;
+  }>;
+};
+
+export type UpdateRoutePlanStopsInput = {
+  routePlanId: string;
+  shopDomain: string;
+  payload: UpdateRoutePlanStopsPayload;
+};
+
 export type RoutePlanDetail = {
   routePlan: RoutePlanSummary;
+  routeGeometry: RoutePlanRouteGeometry | null;
   stops: RoutePlanDetailStop[];
 };
 
@@ -122,6 +143,7 @@ export type RoutePlanService = {
     shopDomain: string;
   }): Promise<RoutePlanDetail | null>;
   listRoutePlans(input: { shopDomain: string }): Promise<RoutePlanSummary[]>;
+  updateRoutePlanStops(input: UpdateRoutePlanStopsInput): Promise<RoutePlanDetail | null>;
 };
 
 export class RoutePlanOrderAlreadyPlannedError extends Error {
@@ -131,5 +153,14 @@ export class RoutePlanOrderAlreadyPlannedError extends Error {
     super('Route plan contains orders that are already assigned to a route plan.');
     this.name = 'RoutePlanOrderAlreadyPlannedError';
     this.orderNames = orderNames;
+  }
+}
+
+export class RoutePlanStopUpdateInvalidError extends Error {
+  readonly code = 'ROUTE_STOP_UPDATE_INVALID';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'RoutePlanStopUpdateInvalidError';
   }
 }

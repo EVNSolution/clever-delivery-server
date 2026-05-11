@@ -1,13 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 
-import { RoutePlanOrderAlreadyPlannedError } from '../modules/route-plans/route-plan.types.js';
+import {
+  RoutePlanOrderAlreadyPlannedError,
+  RoutePlanStopUpdateInvalidError
+} from '../modules/route-plans/route-plan.types.js';
 import type {
   CreateRoutePlanPayload,
   RoutePlanOrderAttributeInput,
   RoutePlanOrderInput,
   RoutePlanRouteScopeInput,
   RoutePlanService,
-  RoutePlanShippingAddressInput
+  RoutePlanShippingAddressInput,
+  UpdateRoutePlanStopsPayload
 } from '../modules/route-plans/route-plan.types.js';
 
 export type AdminRoutePlanDependencies = {
@@ -106,6 +110,54 @@ export function registerAdminRoutePlanRoutes(
     }
   );
 
+  app.patch<{ Body: unknown; Params: { routePlanId: string } }>(
+    '/admin/route-plans/:routePlanId/stops',
+    async (request, reply) => {
+      const authenticated = authenticate(request.headers.authorization, dependencies);
+      if (authenticated.status === 'unauthorized') {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', authenticated.message));
+      }
+
+      let payload: UpdateRoutePlanStopsPayload;
+      try {
+        payload = readUpdateRoutePlanStopsPayload(request.body);
+      } catch {
+        return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid route stop update payload'));
+      }
+
+      try {
+        const detail = await dependencies.routePlanService.updateRoutePlanStops({
+          payload,
+          routePlanId: request.params.routePlanId,
+          shopDomain: authenticated.shopDomain
+        });
+        if (detail === null) {
+          return reply.code(404).send(errorResponse('NOT_FOUND', 'Route plan not found'));
+        }
+
+        return reply.code(200).send({
+          data: detail,
+          error: null
+        });
+      } catch (error) {
+        if (error instanceof RoutePlanStopUpdateInvalidError) {
+          return reply.code(400).send(errorResponse(error.code, error.message));
+        }
+        if (error instanceof RoutePlanOrderAlreadyPlannedError) {
+          return reply
+            .code(409)
+            .send(
+              errorResponse(
+                'ROUTE_ORDER_ALREADY_PLANNED',
+                '이미 다른 Route에 등록된 주문이 포함되어 있어 Route stops를 저장하지 않았습니다. 아직 Route에 없는 주문만 추가해주세요.'
+              )
+            );
+        }
+        throw error;
+      }
+    }
+  );
+
   app.delete<{ Params: { routePlanId: string } }>(
     '/admin/route-plans/:routePlanId',
     async (request, reply) => {
@@ -178,6 +230,25 @@ function readCreateRoutePlanPayload(value: unknown): CreateRoutePlanPayload {
     orders,
     planDate,
     ...(routeScope === undefined ? {} : { routeScope })
+  };
+}
+
+function readUpdateRoutePlanStopsPayload(value: unknown): UpdateRoutePlanStopsPayload {
+  const object = requireObject(value);
+  if (!Array.isArray(object.stops)) {
+    throw new Error('stops must be an array');
+  }
+
+  return {
+    stops: object.stops.map((item) => {
+      const stop = requireObject(item);
+      const deliveryStopId = readNullableString(stop.deliveryStopId);
+      return {
+        ...(deliveryStopId === null ? {} : { deliveryStopId }),
+        sequence: requirePositiveInteger(stop.sequence),
+        shopifyOrderGid: requireNonEmptyString(stop.shopifyOrderGid)
+      };
+    })
   };
 }
 
@@ -400,6 +471,14 @@ function requirePlanDate(value: unknown): string {
   }
 
   return planDate;
+}
+
+function requirePositiveInteger(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new Error('positive integer required');
+  }
+
+  return value;
 }
 
 function readNullableString(value: unknown): string | null {
