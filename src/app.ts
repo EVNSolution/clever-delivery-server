@@ -7,6 +7,7 @@ import {
   registerAdminRoutePlanRoutes,
   type AdminRoutePlanDependencies
 } from './routes/admin-route-plans.routes.js';
+import { registerAdminDriversRoutes, type AdminDriversDependencies } from './routes/admin-drivers.routes.js';
 import { registerAdminOrdersRoutes, type AdminOrdersDependencies } from './routes/admin-orders.routes.js';
 import { registerDriverEventRoutes, type DriverApiDependencies } from './routes/driver-events.routes.js';
 import { registerJsonBodyParser } from './routes/json-body-parser.js';
@@ -18,6 +19,7 @@ import {
 } from './routes/shopify-webhook.routes.js';
 
 type BuildAppOptions = {
+  adminDrivers?: AdminDriversDependencies;
   adminOrders?: AdminOrdersDependencies;
   adminRoutePlans?: AdminRoutePlanDependencies;
   corsOrigin?: false | string;
@@ -34,6 +36,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(helmet);
   await app.register(cors, { origin: options.corsOrigin ?? false });
   registerHealthRoutes(app);
+
+  if (options.adminDrivers !== undefined) {
+    registerAdminDriversRoutes(app, options.adminDrivers);
+  }
 
   if (options.adminOrders !== undefined) {
     registerAdminOrdersRoutes(app, options.adminOrders);
