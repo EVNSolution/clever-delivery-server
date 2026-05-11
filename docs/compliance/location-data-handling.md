@@ -31,8 +31,20 @@ A single API call can create more than one compliance record. Keep these records
 | --- | --- | --- | ---: |
 | `LocationPermissionAudit` | Who granted/changed/revoked location-information access rights | Admin role scope changed from route-read to route-write | 5 years |
 | `LocationAccessLog` | Who accessed the location-information system/API | Admin called route detail API | 400 days |
-| `LocationUsageRecord` | Location information was collected, used, provided, deleted, or anonymized | Driver GPS collected; route planner used stop coordinates; driver app received assigned stop coordinates | 215 days |
-| `RetentionJobRun` | Cleanup/backfill execution evidence | rawPayload sanitizer dry-run/apply; driver coordinate anonymization | Keep with operational evidence policy; do not include raw location values |
+| `LocationUsageRecord` | Statutory-style confirmation record that location information was collected, used, or provided | Driver GPS collected; route planner used stop coordinates; driver app received assigned stop coordinates | 215 days |
+| `RetentionJobRun` | Internal lifecycle execution evidence for deletion, anonymization, correction, sanitizer, and backfill runs | rawPayload sanitizer dry-run/apply; driver coordinate anonymization | Keep with operational evidence policy; do not include raw location values |
+
+## Legal classification note for records
+
+`LocationUsageRecord` primarily exists as the automatic confirmation record for location information collection, use, and provision.
+
+Deletion, anonymization, correction, sanitizer, and retention cleanup events are internal lifecycle audit events. Record those events in `RetentionJobRun`; link from `LocationUsageRecord` only if a future implementation explicitly marks the event as `INTERNAL_LIFECYCLE`, so statutory collection/use/provision evidence remains distinguishable.
+
+Engineering classification rule:
+
+- `USE`: location data is processed inside admin/server-side operations.
+- `PROVIDE`: location data is returned to another principal, client app, driver app, partner system, or external recipient.
+- Final legal classification remains subject to legal review.
 
 ## Automatic recording coverage map
 
@@ -42,16 +54,18 @@ A single API call can create more than one compliance record. Keep these records
 | `GET /admin/orders` list/filter | Yes | `USE` when rows include address/coordinates | Include filter summary and result count. |
 | `GET /admin/route-plans/:routePlanId` detail | Yes | `USE` | Route detail exposes stop/address/location context. |
 | `POST /admin/route-plans` create | Yes | `USE` | Route planning uses delivery stop coordinates; record routeScopeKey and order count. |
-| Driver assigned route read, once implemented | Yes | `PROVIDE` or `USE` | Must enforce assigned driver/active session boundary before logging success. |
-| Driver stop detail read, once implemented | Yes | `PROVIDE` or `USE` | Must block other drivers with 403 and log denied access without coordinates. |
+| Driver assigned route read, once implemented | Yes | `PROVIDE` by engineering default | Must enforce assigned driver/active session boundary before logging success. |
+| Driver stop detail read, once implemented | Yes | `PROVIDE` by engineering default | Must block other drivers with 403 and log denied access without coordinates. |
 | `POST /driver/events` with `LOCATION_UPDATED` | Yes | `COLLECT` | Driver GPS collection. |
-| Retention cleanup execution | Yes | `DELETE` or `ANONYMIZE` | Record deleted/anonymized counts and job id. |
-| rawPayload sanitizer/backfill execution | Yes | `DELETE` or `CORRECT` | Record dry-run/apply counts and evidence artifact path. |
+| Retention cleanup execution | Yes | `INTERNAL_LIFECYCLE` via `RetentionJobRun` | Record deleted/anonymized counts and job id. |
+| rawPayload sanitizer/backfill execution | Yes | `INTERNAL_LIFECYCLE` via `RetentionJobRun` | Record dry-run/apply counts and evidence artifact path. |
 | Permission grant/change/revoke operation, once implemented | Yes | Not normally usage | Always create `LocationPermissionAudit`. |
 
 ## Proposed internal retention policy
 
-These are engineering defaults for the next implementation. They intentionally separate raw location data from legally required confirmation/audit records.
+These are maximum engineering defaults for the next implementation. They intentionally separate raw location data from legally required confirmation/audit records.
+
+Retention days are maximum engineering defaults, not guaranteed holding periods. If the collection/use/provision purpose is completed earlier and no lawful retention basis remains, raw personal location data should be deleted or anonymized earlier than the configured maximum.
 
 | Record class | Proposed default | Reason | Deletion/anonymization behavior |
 | --- | ---: | --- | --- |
@@ -84,7 +98,8 @@ POSTGRES_BACKUP_RETENTION_DAYS=35
 5. **Tenant boundary first**: every query touching location data must include `shopId`/`shopDomain` scoping.
 6. **Driver boundary second**: driver APIs must only expose route/stop data assigned to that driver or active session context.
 7. **Use immutable-ish logs**: application code should insert audit rows, not update them. Retention cleanup is the only planned deleter.
-8. **Evidence must match reality**: do not claim DRF, Traefik, MQTT, AES-256 field encryption, 8-level RBAC, or GuardDuty unless the deployed system actually has it.
+8. **Classify `USE` / `PROVIDE` consistently**: server-side/admin processing is `USE`; returning location data to a separate principal/client/driver/partner is `PROVIDE` until legal review decides otherwise.
+9. **Evidence must match reality**: do not claim DRF, Traefik, MQTT, AES-256 field encryption, 8-level RBAC, or GuardDuty unless the deployed system actually has it.
 
 ## Evidence folder shape
 

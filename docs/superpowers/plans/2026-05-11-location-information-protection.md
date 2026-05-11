@@ -68,7 +68,7 @@ Modify:
 | Phase 1 | DB models/migration for `LocationAccessLog`, `LocationUsageRecord`, `LocationPermissionAudit`, and retention run logging | Prisma models, indexes, model tests |
 | Phase 2 | API logging and request correlation | route-level `AccessLog` and `UsageRecord`, requestId propagation, tenant/driver boundary assertions |
 | Phase 3 | Data minimization | new-write rawPayload sanitizer, existing-row backfill script, email search removal, coordinate scrubbers |
-| Phase 4 | Retention jobs | 400-day access log cleanup, 215-day usage cleanup, 5-year permission audit retention, driver/delivery coordinate anonymization, hold flag support |
+| Phase 4 | Retention jobs | 400-day access log cleanup, 215-day usage cleanup, 5-year permission audit retention, `RetentionJobRun` lifecycle evidence, driver/delivery coordinate anonymization, hold flag support |
 | Phase 5 | Evidence and management safeguards | inventory, auth, network, log, retention, permission audit, annual self-inspection, training/guideline evidence files |
 
 ## Automatic recording coverage
@@ -79,11 +79,25 @@ Modify:
 | `GET /admin/orders` | Yes | `USE` when location-bearing rows are returned | none |
 | `POST /admin/route-plans` | Yes | `USE` | none |
 | `GET /admin/route-plans/:routePlanId` | Yes | `USE` | none |
-| Future driver assigned route/detail reads | Yes | `PROVIDE` or `USE` | 403 denied access log for wrong driver |
+| Future driver assigned route/detail reads | Yes | `PROVIDE` by engineering default | 403 denied access log for wrong driver |
 | `POST /driver/events` with `LOCATION_UPDATED` | Yes | `COLLECT` | none |
-| Retention cleanup | Yes | `DELETE` or `ANONYMIZE` | `RetentionJobRun` |
-| rawPayload sanitizer/backfill | Yes | `DELETE` or `CORRECT` | `RetentionJobRun` |
+| Retention cleanup | Yes | none; internal lifecycle via `RetentionJobRun` | `RetentionJobRun` |
+| rawPayload sanitizer/backfill | Yes | none; internal lifecycle via `RetentionJobRun` | `RetentionJobRun` |
 | Permission grant/change/revoke | Yes | no usage record by default | `LocationPermissionAudit` |
+
+## Legal classification note for implementation
+
+`LocationUsageRecord` is the confirmation record for statutory collection/use/provision evidence, so its `usageKind` is limited to `COLLECT`, `USE`, and `PROVIDE`.
+
+Deletion, anonymization, correction, sanitizer, and backfill events are internal lifecycle audit events. Store them in `RetentionJobRun` with sanitized counts and metadata, not as statutory usage kinds. If a later legal review requires a linked usage row, add an explicit `INTERNAL_LIFECYCLE` classification rather than mixing these events into `COLLECT` / `USE` / `PROVIDE`.
+
+Engineering classification rule:
+
+- `USE`: location data is processed inside admin/server-side operations.
+- `PROVIDE`: location data is returned to another principal, client app, driver app, partner system, or external recipient.
+- Final legal classification remains subject to legal review.
+
+Retention periods are maximum engineering defaults, not guaranteed holding periods. If the collection/use/provision purpose is completed earlier and no lawful retention basis remains, raw personal location data should be deleted or anonymized earlier than the configured maximum.
 
 ### Task 1: Add Prisma permission-audit, access-log, and usage-record models
 
@@ -204,9 +218,6 @@ enum LocationUsageKind {
   COLLECT
   USE
   PROVIDE
-  DELETE
-  ANONYMIZE
-  CORRECT
 }
 
 enum LocationPermissionAuditAction {
@@ -367,7 +378,7 @@ export type LocationAuditAction =
   | 'RECORD_DRIVER_EVENT'
   | 'RUN_RETENTION_CLEANUP'
   | 'RUN_RAW_PAYLOAD_BACKFILL';
-export type LocationUsageKind = 'COLLECT' | 'USE' | 'PROVIDE' | 'DELETE' | 'ANONYMIZE' | 'CORRECT';
+export type LocationUsageKind = 'COLLECT' | 'USE' | 'PROVIDE';
 export type LocationPermissionAuditAction = 'GRANTED' | 'CHANGED' | 'REVOKED';
 export type LocationResourceType = 'ORDER' | 'DELIVERY_STOP' | 'ROUTE_PLAN' | 'DRIVER_EVENT' | 'SHOP' | 'SYSTEM';
 export type LocationAuditResult = 'SUCCESS' | 'DENIED' | 'ERROR';
