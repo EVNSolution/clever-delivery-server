@@ -263,8 +263,15 @@ function toOrderWrite(input: RoutePlanOrderInput): {
       ...objectOrEmpty(input.rawPayload),
       attributes: input.attributes,
       deliveryArea: input.deliveryArea,
+      deliveryDate: input.deliveryDate ?? null,
       deliveryDay: input.deliveryDay,
-      recipientName: input.recipientName
+      deliverySession: input.deliverySession ?? null,
+      planningGroupKey: input.planningGroupKey ?? null,
+      recipientName: input.recipientName,
+      routeScopeKey: input.routeScopeKey ?? null,
+      serviceType: input.serviceType ?? null,
+      timeWindowEnd: input.timeWindowEnd ?? null,
+      timeWindowStart: input.timeWindowStart ?? null
     }),
     shippingAddress: toJson(input.shippingAddress),
     shopifyOrderGid: input.shopifyOrderGid,

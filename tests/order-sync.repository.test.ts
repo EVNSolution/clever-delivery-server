@@ -66,6 +66,25 @@ describe('PrismaOrderSyncRepository canonical orders', () => {
     expect(prisma.deliveryStop.upsert).not.toHaveBeenCalled();
   });
 
+  test('refreshes same-timestamp snapshots so derived route scope/readiness can be repaired', async () => {
+    const { prisma } = createPrismaHarness({
+      existingOrder: { id: 'order-id', updatedAtShopify: new Date('2026-05-07T13:00:00.000Z') },
+      routeStopCount: 0
+    });
+    const repository = new PrismaOrderSyncRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaOrderSyncRepository>[0]
+    );
+
+    const result = await repository.upsertOrderWithDeliveryStop({
+      shopDomain: 'example.myshopify.com',
+      synced: syncedOrder({ updatedAtShopify: new Date('2026-05-07T13:00:00.000Z') })
+    });
+
+    expect(result.status).toBe('updated');
+    expect(prisma.order.upsert).toHaveBeenCalledOnce();
+    expect(prisma.deliveryStop.upsert).toHaveBeenCalledOnce();
+  });
+
   test('clears stale delivery stop fields when a newer snapshot has no shipping address', async () => {
     const { prisma } = createPrismaHarness({
       existingOrder: { id: 'order-id', updatedAtShopify: new Date('2026-05-07T12:00:00.000Z') },

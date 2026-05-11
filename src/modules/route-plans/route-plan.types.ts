@@ -31,7 +31,9 @@ export type RoutePlanOrderInput = {
   attributes: RoutePlanOrderAttributeInput[];
   currencyCode: string | null;
   deliveryArea: string | null;
+  deliveryDate?: string | null | undefined;
   deliveryDay: string | null;
+  deliverySession?: 'DAY' | 'EVENING' | 'PICKUP' | null | undefined;
   email: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
@@ -39,11 +41,16 @@ export type RoutePlanOrderInput = {
   longitude: number | null;
   name: string;
   phone: string | null;
+  planningGroupKey?: string | null | undefined;
   processedAt: Date | null;
   rawPayload: unknown;
   recipientName: string | null;
+  routeScopeKey?: string | null | undefined;
+  serviceType?: 'DELIVERY' | 'EVENING_DELIVERY' | 'PICKUP' | null | undefined;
   shippingAddress: RoutePlanShippingAddressInput;
   shopifyOrderGid: string;
+  timeWindowEnd?: string | null | undefined;
+  timeWindowStart?: string | null | undefined;
   totalPriceAmount: string | null;
 };
 
