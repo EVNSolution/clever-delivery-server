@@ -34,7 +34,7 @@ jobs:
       INCLUDE_DB_COUNTS: ${{ github.event.inputs.include_database || 'true' }}
     steps:
       - name: Checkout inspection script
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Inspect Docker Compose runtime
         run: |
