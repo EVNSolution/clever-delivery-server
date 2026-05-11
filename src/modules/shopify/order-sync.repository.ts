@@ -105,7 +105,7 @@ export class PrismaOrderSyncRepository {
       }
     });
 
-    if (existing !== null && isExistingCurrent(existing, input.synced.order.updatedAtShopify)) {
+    if (existing !== null && isExistingNewerThanSnapshot(existing, input.synced.order.updatedAtShopify)) {
       return { orderId: existing.id, status: 'unchanged', stopId: null };
     }
 
@@ -188,8 +188,8 @@ export class PrismaOrderSyncRepository {
   }
 }
 
-function isExistingCurrent(existing: ExistingOrder, incomingUpdatedAt: Date): boolean {
-  return existing.updatedAtShopify !== null && existing.updatedAtShopify.getTime() >= incomingUpdatedAt.getTime();
+function isExistingNewerThanSnapshot(existing: ExistingOrder, incomingUpdatedAt: Date): boolean {
+  return existing.updatedAtShopify !== null && existing.updatedAtShopify.getTime() > incomingUpdatedAt.getTime();
 }
 
 function canonicalOrderInclude(): {

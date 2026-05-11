@@ -125,6 +125,41 @@ describe('Admin route plan routes', () => {
     }
   });
 
+  test('accepts route scope keys from top-level route-plan orders', async () => {
+    const { createRoutePlan, dependencies } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+    const payload = scopedRoutePlanPayload();
+    const orders = payload.orders as Record<string, unknown>[];
+    for (const order of orders) {
+      order.rawPayload = {};
+      order.deliveryDate = '2026-05-08';
+      order.deliverySession = 'EVENING';
+      order.routeScopeKey = '2026-05-08|EVENING_DELIVERY|17:00|21:00';
+      order.serviceType = 'EVENING_DELIVERY';
+      order.timeWindowEnd = '21:00';
+      order.timeWindowStart = '17:00';
+    }
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'POST',
+        payload,
+        url: '/admin/route-plans'
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(createRoutePlan).toHaveBeenCalledOnce();
+      const createRoutePlanInput = createRoutePlan.mock.calls[0]?.[0];
+      expect(createRoutePlanInput?.payload.orders.map((order) => order.routeScopeKey)).toEqual([
+        '2026-05-08|EVENING_DELIVERY|17:00|21:00',
+        '2026-05-08|EVENING_DELIVERY|17:00|21:00'
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
   test('rejects route plans that mix Friday day and Friday evening scopes', async () => {
     const { createRoutePlan, dependencies } = createDependencyHarness();
     const app = await buildApp({ adminRoutePlans: dependencies });

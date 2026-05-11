@@ -183,7 +183,7 @@ function validateRouteScope(
 
 function readOrderRouteScopeKey(order: RoutePlanOrderInput): string | null {
   const rawPayload = objectOrNull(order.rawPayload);
-  return readNullableString(rawPayload?.routeScopeKey);
+  return order.routeScopeKey ?? readNullableString(rawPayload?.routeScopeKey);
 }
 
 function readDepot(value: unknown): CreateRoutePlanPayload['depot'] {
@@ -205,11 +205,29 @@ function readOrders(value: unknown): RoutePlanOrderInput[] {
 
 function readOrder(value: unknown): RoutePlanOrderInput {
   const object = requireObject(value);
+  const deliveryDate = readNullablePlanDate(object.deliveryDate);
+  const deliverySession = readNullableDeliverySession(object.deliverySession);
+  const serviceType = readNullableServiceType(object.serviceType);
+  const timeWindowEnd = readNullableTime(object.timeWindowEnd);
+  const timeWindowStart = readNullableTime(object.timeWindowStart);
+  const rawPayload = object.rawPayload ?? {};
+  const routeScopeKey =
+    readNullableString(object.routeScopeKey) ??
+    readNullableString(objectOrNull(rawPayload)?.routeScopeKey) ??
+    buildRouteScopeKey({
+      deliveryDate,
+      serviceType,
+      timeWindowEnd,
+      timeWindowStart
+    });
+
   return {
     attributes: readAttributes(object.attributes),
     currencyCode: readNullableString(object.currencyCode),
     deliveryArea: readNullableString(object.deliveryArea),
+    deliveryDate,
     deliveryDay: readNullableString(object.deliveryDay),
+    deliverySession,
     email: readNullableString(object.email),
     financialStatus: readNullableString(object.financialStatus),
     fulfillmentStatus: readNullableString(object.fulfillmentStatus),
@@ -217,11 +235,16 @@ function readOrder(value: unknown): RoutePlanOrderInput {
     longitude: readNullableCoordinate(object.longitude),
     name: requireNonEmptyString(object.name),
     phone: readNullableString(object.phone),
+    planningGroupKey: readNullableString(object.planningGroupKey),
     processedAt: readNullableDate(object.processedAt),
-    rawPayload: object.rawPayload ?? {},
+    rawPayload,
     recipientName: readNullableString(object.recipientName),
+    routeScopeKey,
+    serviceType,
     shippingAddress: readShippingAddress(object.shippingAddress),
     shopifyOrderGid: requireNonEmptyString(object.shopifyOrderGid),
+    timeWindowEnd,
+    timeWindowStart,
     totalPriceAmount: readNullableString(object.totalPriceAmount)
   };
 }
@@ -262,6 +285,47 @@ function readNullableTime(value: unknown): string | null {
   if (text === null) return null;
   if (!/^\d{2}:\d{2}$/u.test(text)) throw new Error('time must be HH:mm');
   return text;
+}
+
+function readNullablePlanDate(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return requirePlanDate(value);
+}
+
+function readNullableDeliverySession(value: unknown): RoutePlanOrderInput['deliverySession'] {
+  const text = readNullableString(value);
+  if (text === null) return null;
+  if (text !== 'DAY' && text !== 'EVENING' && text !== 'PICKUP') {
+    throw new Error('invalid deliverySession');
+  }
+  return text;
+}
+
+function readNullableServiceType(value: unknown): RoutePlanOrderInput['serviceType'] {
+  const text = readNullableString(value);
+  if (text === null) return null;
+  if (text !== 'DELIVERY' && text !== 'EVENING_DELIVERY' && text !== 'PICKUP') {
+    throw new Error('invalid serviceType');
+  }
+  return text;
+}
+
+function buildRouteScopeKey(input: {
+  deliveryDate: string | null;
+  serviceType: RoutePlanOrderInput['serviceType'];
+  timeWindowEnd: string | null;
+  timeWindowStart: string | null;
+}): string | null {
+  if (input.deliveryDate === null || input.serviceType === null || input.serviceType === undefined) {
+    return null;
+  }
+
+  return [
+    input.deliveryDate,
+    input.serviceType,
+    input.timeWindowStart ?? '',
+    input.timeWindowEnd ?? ''
+  ].join('|');
 }
 
 function objectOrNull(value: unknown): Record<string, unknown> | null {
