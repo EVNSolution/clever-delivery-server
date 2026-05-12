@@ -54,6 +54,7 @@ Engineering classification rule:
 | `GET /admin/orders` list/filter | Yes | `USE` when rows include address/coordinates | Include filter summary and result count. |
 | `GET /admin/route-plans/:routePlanId` detail | Yes | `USE` | Route detail exposes stop/address/location context. |
 | `POST /admin/route-plans` create | Yes | `USE` | Route planning uses delivery stop coordinates; record routeScopeKey and order count. |
+| `POST /driver/consents` consent record write | No | Not normally usage | Consent acceptance evidence only; do not store coordinates/customer data in optional app/device/route context. |
 | Driver assigned route read, once implemented | Yes | `PROVIDE` by engineering default | Must enforce assigned driver/active session boundary before logging success. |
 | Driver stop detail read, once implemented | Yes | `PROVIDE` by engineering default | Must block other drivers with 403 and log denied access without coordinates. |
 | `POST /driver/events` with `LOCATION_UPDATED` | Yes | `COLLECT` | Driver GPS collection. |
@@ -132,7 +133,7 @@ The codebase can support technical controls, but the service plan also needs man
 
 ## Known current gaps
 
-- No dedicated `LocationAccessLog` / `LocationUsageRecord` / `LocationPermissionAudit` models yet.
+- `DriverConsentRecord` exists for notice acceptance evidence; no dedicated `LocationAccessLog` / `LocationUsageRecord` / `LocationPermissionAudit` models yet.
 - No automatic retention cleanup job yet.
 - No 5-year access-right grant/change/revoke audit table yet.
 - Raw payloads can still duplicate coordinates from Shopify/app snapshots.
