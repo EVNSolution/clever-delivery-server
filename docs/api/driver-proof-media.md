@@ -10,6 +10,14 @@ The route is registered with the Driver API runtime when `JWT_SECRET` is configu
 
 `DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, signed retrieval/access, malware scanning, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
 
+Manual or cron-style retention cleanup uses:
+
+```bash
+npm run driver:proof-media:cleanup
+```
+
+The command does not start the HTTP server. It connects Prisma, applies `DRIVER_PROOF_MEDIA_RETENTION_DAYS`, runs the proof-media repository cleanup, disconnects Prisma, and prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, and `deletedAt`.
+
 ## POST `/driver/proof-media`
 
 Request:
@@ -99,6 +107,7 @@ The repository checks all of the following before writing bytes or metadata:
 - `PrismaDriverProofMediaRepository.deleteExpiredProofMedia()` selects undeleted metadata older than the configured cutoff, removes local stored bytes under the configured storage root, and marks rows with `deletedAt`.
 - Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
 - Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
+- `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled local cleanup.
 - Object storage, signed URL access, virus/malware scanning, and private evidence storage remain follow-up hardening items.
 
 ## Adjacent APIs
