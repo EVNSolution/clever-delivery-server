@@ -55,7 +55,7 @@ Engineering classification rule:
 | `GET /admin/route-plans/:routePlanId` detail | Yes | `USE` | Route detail exposes stop/address/location context. |
 | `POST /admin/route-plans` create | Yes | `USE` | Route planning uses delivery stop coordinates; record routeScopeKey and order count. |
 | `POST /driver/consents` consent record write | No | Not normally usage | Consent acceptance evidence only; do not store coordinates/customer data in optional app/device/route context. |
-| Driver assigned route read, once implemented | Yes | `PROVIDE` by engineering default | Must enforce assigned driver/active session boundary before logging success. |
+| `GET /driver/assigned-route` | Yes | `PROVIDE` by engineering default | Enforces bearer-token shop/driver boundary before returning stop address/location context; dedicated access/usage log persistence remains follow-up. |
 | Driver stop detail read, once implemented | Yes | `PROVIDE` by engineering default | Must block other drivers with 403 and log denied access without coordinates. |
 | `POST /driver/events` with `LOCATION_UPDATED` | Yes | `COLLECT` | Driver GPS collection. |
 | Retention cleanup execution | Yes | `INTERNAL_LIFECYCLE` via `RetentionJobRun` | Record deleted/anonymized counts and job id. |

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import { verifyDriverToken } from '../modules/driver/driver-token-verifier.js';
+import type { DriverAssignedRouteServiceContract } from '../modules/driver/driver-assigned-route.types.js';
 import type {
   DriverConsentRecordInput,
   DriverConsentServiceContract,
@@ -12,6 +13,7 @@ import type {
 } from '../modules/driver/driver-route-access.types.js';
 
 export type DriverApiDependencies = {
+  driverAssignedRouteService?: DriverAssignedRouteServiceContract;
   driverConsentService?: DriverConsentServiceContract;
   driverEventService: {
     recordDriverEvent(input: {
@@ -34,6 +36,10 @@ export type DriverApiDependencies = {
 
 type DriverRouteAccessRequestBody = {
   phoneE164?: unknown;
+  routeContext?: unknown;
+};
+
+type DriverAssignedRouteQuery = {
   routeContext?: unknown;
 };
 
@@ -95,6 +101,45 @@ export function registerDriverEventRoutes(
         });
       }
     );
+  }
+
+  const driverAssignedRouteService = dependencies.driverAssignedRouteService;
+  if (driverAssignedRouteService !== undefined) {
+    app.get<{ Querystring: DriverAssignedRouteQuery }>('/driver/assigned-route', async (request, reply) => {
+      const token = extractBearerToken(request.headers.authorization);
+      if (token === null) {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', 'Missing driver bearer token'));
+      }
+
+      let driverContext: { driverId: string; shopDomain: string };
+      try {
+        const now = dependencies.now?.();
+        driverContext = verifyDriverToken(
+          token,
+          now === undefined ? { secret: dependencies.jwtSecret } : { now, secret: dependencies.jwtSecret }
+        );
+      } catch {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', 'Invalid driver bearer token'));
+      }
+
+      let routeContext: string | null;
+      try {
+        routeContext = readOptionalString(request.query.routeContext);
+      } catch {
+        return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid driver assigned route query'));
+      }
+
+      const result = await driverAssignedRouteService.getAssignedRoute({
+        driverId: driverContext.driverId,
+        routeContext,
+        shopDomain: driverContext.shopDomain
+      });
+
+      return reply.code(200).send({
+        data: result,
+        error: null
+      });
+    });
   }
 
   const driverConsentService = dependencies.driverConsentService;
