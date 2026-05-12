@@ -18,9 +18,9 @@ This repository currently contains the basic Node.js/TypeScript API scaffold plu
 - Shopify session-token verifier, token-exchange client, API route, and env-driven runtime wiring
 - Shopify HTTPS webhook HMAC verifier, receive route, and idempotent receipt-storage contract
 - Shopify Admin GraphQL client plus order-sync query/mapper/service foundation
-- Driver API bearer-token verifier, route+phone access lookup, consent persistence, assigned route read, and idempotent driver-event ingest route
+- Driver API bearer-token verifier, route+phone access lookup, consent persistence, assigned route read, proof-media upload metadata/storage, and idempotent driver-event ingest route
 
-Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/session issuance APIs, stop-detail/action APIs, dedicated location access/usage logging, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/session issuance APIs, stop-detail/action APIs, production object-store/retention hardening for proof media, dedicated location access/usage logging, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
@@ -221,6 +221,21 @@ The route is registered when `JWT_SECRET` is configured. It verifies the Driver 
 
 See `docs/api/driver-assigned-route.md` for the response contract, data boundary, and compliance notes.
 
+
+## Driver proof media API readiness
+
+The native driver app can upload proof photos before sending stop-completion proof events:
+
+```http
+POST /driver/proof-media
+Authorization: Bearer <server-issued driver JWT>
+Content-Type: multipart/form-data
+```
+
+Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, writes bytes under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`), and stores `DriverProofMedia` metadata with `storageKey`, `sizeBytes`, and `sha256`.
+
+See `docs/api/driver-proof-media.md` for the request/response contract and production storage/retention caveats.
+
 ## Driver API event ingest readiness
 
 Driver clients should call this server, not Shopify Admin APIs directly. The first Driver API event route is prepared as:
@@ -243,7 +258,7 @@ Content-Type: application/json
 
 The route is registered when `JWT_SECRET` is configured. It verifies HS256 bearer tokens with audience `clever-delivery-driver`, extracts driver/shop context, validates event payloads, and records driver events idempotently by `(driverId, clientEventId)`.
 
-Driver login/session issuance, stop action writes, and dedicated location access/usage ledgers are still follow-up work.
+Driver login/session issuance, production proof-media object storage/retention hardening, stop action status mutation semantics, and dedicated location access/usage ledgers are still follow-up work.
 
 ## Project references
 

@@ -30,6 +30,7 @@
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.2",
+    "@fastify/multipart": "^9.4.0",
     "@prisma/client": "^6.19.3",
     "fastify": "^5.8.5"
   },

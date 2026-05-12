@@ -11,3 +11,4 @@ coverage/
 .cache/
 .npm/
 *.tsbuildinfo
+var/driver-proof-media/

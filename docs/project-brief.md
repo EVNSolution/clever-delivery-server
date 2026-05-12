@@ -34,7 +34,7 @@ Shopify 앱 옆에 별도 delivery data server를 두고, 초기에는 EC2 단�
 
 - Shopify order ingestion and reconciliation
 - Webhook HMAC verification and idempotent event storage
-- Internal PostgreSQL schema for shops, orders, delivery stops, routes, drivers, vehicles, and driver events
+- Internal PostgreSQL schema for shops, orders, delivery stops, routes, drivers, vehicles, driver events, and driver proof media
 - Basic route optimization MVP
 - Driver mobile API skeleton
 - EC2/EBS deployment and backup readiness
@@ -77,7 +77,7 @@ Shopify 앱 옆에 별도 delivery data server를 두고, 초기에는 EC2 단�
 ## 미정 사항
 
 - Final server framework: Node/TypeScript Fastify selected for the initial scaffold
-- Driver app authentication depth after route+phone lookup: route access lookup, short-lived driver access token issuance, consent record persistence, and assigned-route read API are available; stronger OTP/deep-link/session hardening remains pending
+- Driver app authentication depth after route+phone lookup: route access lookup, short-lived driver access token issuance, consent record persistence, assigned-route read API, driver event ingest, and proof-media upload metadata/storage are available; stronger OTP/deep-link/session hardening and production proof-media object storage/retention remain pending
 - Geocoding/routing provider for MVP
 
 ## 다음 작업 목록

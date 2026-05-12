@@ -88,7 +88,8 @@ Implemented adjacent contract:
 
 Remaining follow-up contracts:
 
-- stop detail reads and stop action writes after assigned route read
+- proof media upload: `docs/api/driver-proof-media.md`
+- stop detail reads and final stop action mutation semantics after assigned route read
 - server-side current-consent/version enforcement for route/stop reads when the client sequence alone is not sufficient
 - foreground/background location event hardening and location usage/access logging
 - consent copy source-of-truth/version registry
