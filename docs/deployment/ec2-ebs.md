@@ -125,6 +125,19 @@ Deployment behavior:
 
 The workflow runs automatically after changes merge to `dev`, and can also be run manually with `workflow_dispatch` for a selected ref.
 
+### Proof-media S3-compatible storage
+
+Production proof-media storage can be selected with `DRIVER_PROOF_MEDIA_STORAGE_BACKEND=s3`. Required runtime secrets/config are:
+
+- `DRIVER_PROOF_MEDIA_S3_BUCKET`
+- `DRIVER_PROOF_MEDIA_S3_REGION`
+- `DRIVER_PROOF_MEDIA_S3_ACCESS_KEY_ID`
+- `DRIVER_PROOF_MEDIA_S3_SECRET_ACCESS_KEY`
+
+Optional values are `DRIVER_PROOF_MEDIA_S3_ENDPOINT`, `DRIVER_PROOF_MEDIA_S3_FORCE_PATH_STYLE`, and `DRIVER_PROOF_MEDIA_S3_SESSION_TOKEN` for S3-compatible providers, path-style endpoints, and temporary credentials. The backend signs PUT/DELETE requests and presigned GET read access with AWS Signature Version 4. Keep credentials in the host/container secret mechanism and record only sanitized bucket/IAM policy evidence in change-control issues.
+
+A production release still needs private evidence for bucket ownership, IAM least-privilege policy, credential rotation/custody, signed URL smoke, malware scanner deployment, scanner alerting, and cleanup scheduler deployment.
+
 ### Proof-media cleanup scheduler evidence
 
 Proof-media retention cleanup can be run manually or by a host scheduler:
