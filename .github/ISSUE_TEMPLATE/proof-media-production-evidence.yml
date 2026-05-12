@@ -1,0 +1,96 @@
+name: Proof-media production evidence
+about: Track production proof-media storage, scanner, monitoring, and cleanup evidence without exposing private artifacts.
+title: "Collect proof-media production evidence: <release candidate>"
+labels: [evidence, release, proof-media]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for owner-controlled proof-media production evidence tracked by `docs/proof-media-production-evidence-manifest.template.md`, `docs/api/driver-proof-media.md`, and `docs/deployment/ec2-ebs.md`.
+
+        Do not paste bucket names, IAM policies, credentials, access keys, scanner endpoints, bearer tokens, storage keys, proof files, screenshots, raw logs, customer data, phone numbers, coordinates, or completed evidence manifests into public GitHub issues. Store artifacts in the approved private evidence workspace and paste sanitized references only.
+  - type: input
+    id: source_revision
+    attributes:
+      label: Source revision
+      description: Commit SHA or PR/merge commit selected for production proof-media evidence.
+      placeholder: 2fe17e657dd4941b973a003fa48a304998a4af7e
+    validations:
+      required: true
+  - type: input
+    id: private_manifest
+    attributes:
+      label: Private evidence manifest reference
+      description: Sanitized reference to the private copy of docs/proof-media-production-evidence-manifest.template.md.
+      placeholder: private-evidence://proof-media/production/<date>-<sha>
+    validations:
+      required: true
+  - type: checkboxes
+    id: source_gates
+    attributes:
+      label: Source-controlled gates
+      options:
+        - label: '`npm run check:workspace` passed for the selected source revision.'
+          required: true
+        - label: '`npm run build` passed for the selected source revision.'
+          required: true
+        - label: '`npm audit --audit-level=moderate` passed for the selected source revision.'
+          required: true
+        - label: '`npm run driver:proof-media:evidence:seed` was copied into the private evidence workspace.'
+          required: true
+  - type: checkboxes
+    id: storage_gates
+    attributes:
+      label: Storage and signed access evidence
+      options:
+        - label: Object storage backend selected as S3-compatible in the selected runtime.
+        - label: Bucket ownership approved privately.
+        - label: IAM least-privilege policy approved privately.
+        - label: Credential custody and rotation owner approved privately.
+        - label: Signed PUT/DELETE smoke with synthetic media passed.
+        - label: Signed GET read smoke with synthetic media passed.
+        - label: Retention window approved.
+  - type: checkboxes
+    id: scanner_gates
+    attributes:
+      label: Scanner and monitoring evidence
+      options:
+        - label: HTTP scanner deployment selected and endpoint kept private.
+        - label: Scanner endpoint auth/secret custody approved privately.
+        - label: Clean scan smoke passed with synthetic media.
+        - label: Rejected scan smoke blocked storage metadata.
+        - label: Scan monitor or alert route deployed.
+        - label: Incident response owner approved privately.
+  - type: checkboxes
+    id: cleanup_gates
+    attributes:
+      label: Cleanup scheduler evidence
+      options:
+        - label: Scheduler deployment selected.
+        - label: Cleanup command run recorded with sanitized private log reference.
+        - label: '`RetentionJobRun` row persisted without media ids, storage keys, proof bytes, customer data, coordinates, or phone numbers.'
+        - label: Cleanup logs reviewed for absence of proof bytes, coordinates, customer data, phone numbers, and storage keys.
+  - type: textarea
+    id: sanitized_evidence
+    attributes:
+      label: Sanitized evidence summary
+      description: Include only sanitized private evidence references and remaining gaps.
+      placeholder: |
+        - Storage/IAM/signed access:
+        - Scanner/monitoring:
+        - Cleanup scheduler:
+        - Private evidence workspace:
+        - Gaps/blockers:
+    validations:
+      required: true
+  - type: checkboxes
+    id: closure_gate
+    attributes:
+      label: Closure gate
+      options:
+        - label: Private proof-media manifest has every gate approved/pass/complete and no `pending` placeholders.
+          required: true
+        - label: '`npm run driver:proof-media:evidence:verify -- <private-manifest-path>` passed against a local copy.'
+          required: true
+        - label: No private artifacts, secrets, endpoint values, raw PII, proof files, screenshots, raw logs, or completed manifests were committed or pasted into GitHub.
+          required: true

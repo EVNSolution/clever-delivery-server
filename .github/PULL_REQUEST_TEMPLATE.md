@@ -48,6 +48,7 @@
 - repo docs checked:
   - `.gitignore` / `.dockerignore`
   - `.editorconfig` / `.gitattributes`
+  - `.github/ISSUE_TEMPLATE/`
   - `.env.example`
   - `README.md`
   - `docs/project-brief.md`

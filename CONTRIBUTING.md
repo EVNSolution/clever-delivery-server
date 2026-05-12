@@ -48,7 +48,7 @@ git diff --check
 
 ## Generated and sensitive files
 
-Generated build outputs, local env files, local runtime state, dependency folders, logs, coverage, proof-media storage directories, completed production evidence manifests, and private evidence artifacts must stay untracked. Review `.gitignore`, `.dockerignore`, `.gitattributes`, and `.editorconfig` before adding new tooling, generated clients, database dumps, or deployment artifacts.
+Generated build outputs, local env files, local runtime state, dependency folders, logs, coverage, proof-media storage directories, completed production evidence manifests, and private evidence artifacts must stay untracked. Review `.gitignore`, `.dockerignore`, `.gitattributes`, `.editorconfig`, and `.github/ISSUE_TEMPLATE/` before adding new tooling, generated clients, database dumps, deployment artifacts, or evidence-intake workflows.
 
 ## Repository baseline files
 
