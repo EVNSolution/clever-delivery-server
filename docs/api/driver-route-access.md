@@ -2,7 +2,7 @@
 
 Purpose: the native driver app verifies a scoped route context plus E.164 phone number before showing company guidance or any route/stop/customer details.
 
-This is the first driver-facing contract for `clever-driver-app`. It intentionally returns only non-sensitive company/route guidance. Assigned route reads, stop detail reads, consent records, and location collection remain follow-up APIs.
+This is the first driver-facing contract for `clever-driver-app`. It intentionally returns only non-sensitive company/route guidance. Consent records and assigned-route reads are implemented as separate authenticated contracts; stop detail/actions, driver session issuance, and location collection remain follow-up APIs.
 
 ## Runtime registration
 
@@ -82,9 +82,15 @@ Safe denial statuses return `200` with no guidance payload:
 
 The lookup response must not include delivery stops, customer addresses, coordinates, or order data. It only returns enough non-sensitive context for the driver to confirm the company/shop/route before the consent gate.
 
-## Follow-up APIs
+## Adjacent and follow-up APIs
 
-- consent record persistence
-- assigned route read after consent
-- stop detail read with assigned-driver boundary
+Implemented adjacent contracts:
+
+- consent record persistence: `docs/api/driver-consents.md`
+- assigned route read after consent-gated app flow: `docs/api/driver-assigned-route.md`
+
+Remaining follow-up contracts:
+
+- driver session/access token issuance after route+phone lookup
+- stop detail read and stop action writes with assigned-driver boundary
 - driver event/location update hardening and location usage/access logging
