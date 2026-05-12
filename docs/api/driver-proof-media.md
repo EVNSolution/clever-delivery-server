@@ -8,9 +8,9 @@ This endpoint is a binary upload companion to `POST /driver/events`. The driver 
 
 The route is registered with the Driver API runtime when `JWT_SECRET` is configured. Runtime dependencies include `DRIVER_PROOF_MEDIA_STORAGE_DIR`, which defaults to `var/driver-proof-media` when unset. That default local path is ignored by git and is suitable for local/dev smoke only.
 
-The repository writes and removes bytes through a `DriverProofMediaStorageBackend` contract. The current runtime wires the local filesystem backend, while a production deployment can replace that backend with object storage without changing route scope checks, metadata persistence, EXIF stripping, scan-hook placement, or retention cleanup orchestration.
+The repository writes, removes, and optionally creates read access through a `DriverProofMediaStorageBackend` contract. The current runtime wires the local filesystem backend for write/remove only, while a production deployment can replace that backend with object storage without changing route scope checks, metadata persistence, EXIF stripping, scan-hook placement, signed-read orchestration, or retention cleanup orchestration.
 
-`DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, signed retrieval/access, scanner integration/deployment evidence, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
+`DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defines the short-lived signed/read access lifetime and defaults to 300 seconds. `DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, concrete signed URL backend wiring, scanner integration/deployment evidence, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
 
 JPEG uploads are sanitized before byte persistence: valid EXIF APP1 segments are removed, and returned/stored `sha256` plus `sizeBytes` describe the sanitized bytes. If a `DriverProofMediaScanner` is configured, the scanner receives the sanitized bytes, content type, storage key, and sanitized SHA-256 before any byte write or metadata create. A rejected scan aborts persistence and maps to `422 PROOF_MEDIA_REJECTED`. This reduces accidental location/device metadata retention and provides a server-side scanner integration point, but it is not proof that a production malware scanner, signed access, or private object storage control is deployed.
 
@@ -21,6 +21,46 @@ npm run driver:proof-media:cleanup
 ```
 
 The command does not start the HTTP server. It connects Prisma, applies `DRIVER_PROOF_MEDIA_RETENTION_DAYS`, runs the proof-media repository cleanup, disconnects Prisma, and prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, and `deletedAt`.
+
+## GET `/driver/proof-media/:mediaId/access`
+
+Request:
+
+```http
+GET /driver/proof-media/11111111-1111-4111-8111-111111111111/access
+Authorization: Bearer <server-issued driver JWT>
+```
+
+Success, when the storage backend supports short-lived read access:
+
+```json
+{
+  "data": {
+    "kind": "photo",
+    "mediaId": "11111111-1111-4111-8111-111111111111",
+    "contentType": "image/jpeg",
+    "url": "https://object-storage.example/signed/read-url",
+    "expiresAt": "2026-05-12T10:05:00.000Z"
+  },
+  "error": null
+}
+```
+
+The access route verifies the same Driver API bearer token shape as upload, scopes the media row to token `shopDomain` + `driverId`, requires `deletedAt: null`, and only then asks the storage backend to create a short-lived read URL. It does not expose raw bytes, storage keys, other driver media, deleted media, scanner internals, or object-storage provider credentials.
+
+Missing or invalid bearer tokens return `401`. Invalid media ids return `400`. A bearer-token driver that is not allowed to read the media receives `403` without route/stop details. If the configured storage backend cannot create read access, the route returns `503`:
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "PROOF_MEDIA_ACCESS_UNAVAILABLE",
+    "message": "Proof media access is not configured"
+  }
+}
+```
+
+The default local filesystem backend intentionally does not create public file URLs. Production must wire an object-storage backend that implements `createReadAccess()` and keeps signing credentials outside git.
 
 ## POST `/driver/proof-media`
 
@@ -124,7 +164,7 @@ The repository checks all of the following before writing bytes or metadata:
 - Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
 - Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
 - `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled cleanup. The default runtime backend is local filesystem storage.
-- Object storage, signed URL access, production virus/malware scanner deployment evidence, and private evidence storage remain follow-up hardening items.
+- Object storage backend wiring, production signed URL credentials/evidence, production virus/malware scanner deployment evidence, and private evidence storage remain follow-up hardening items.
 
 ## Adjacent APIs
 

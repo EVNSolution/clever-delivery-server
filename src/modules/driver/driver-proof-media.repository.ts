@@ -4,10 +4,13 @@ import { dirname, resolve, sep } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 
 import {
+  DriverProofMediaAccessUnavailableError,
   DriverProofMediaScanRejectedError,
   DriverProofMediaScopeError
 } from './driver-proof-media.types.js';
 import type {
+  CreateDriverProofMediaReadAccessInput,
+  CreateDriverProofMediaReadAccessResult,
   DriverProofMediaScanner,
   DriverProofMediaSource,
   StoreDriverProofMediaInput,
@@ -26,7 +29,14 @@ export type DriverProofMediaStorageWriteInput = {
   storageKey: string;
 };
 
+export type DriverProofMediaStorageReadAccessInput = {
+  contentType: string;
+  expiresAt: Date;
+  storageKey: string;
+};
+
 export type DriverProofMediaStorageBackend = {
+  createReadAccess?(input: DriverProofMediaStorageReadAccessInput): Promise<{ url: string }>;
   remove(storageKey: string): Promise<'missing' | 'removed'>;
   write(input: DriverProofMediaStorageWriteInput): Promise<void>;
 };
@@ -34,10 +44,13 @@ export type DriverProofMediaStorageBackend = {
 type DriverProofMediaRepositoryOptions = {
   createMediaId?: () => string;
   now?: () => Date;
+  readAccessTtlSeconds?: number;
   scanner?: DriverProofMediaScanner;
   storage?: DriverProofMediaStorageBackend;
   storageRoot?: string;
 };
+
+const DEFAULT_READ_ACCESS_TTL_SECONDS = 5 * 60;
 
 export type DeleteExpiredProofMediaInput = {
   deletedAt?: Date;
@@ -54,6 +67,7 @@ export type DeleteExpiredProofMediaResult = {
 export class PrismaDriverProofMediaRepository {
   private readonly createMediaId: () => string;
   private readonly now: () => Date;
+  private readonly readAccessTtlSeconds: number;
   private readonly scanner: DriverProofMediaScanner | undefined;
   private readonly storage: DriverProofMediaStorageBackend;
 
@@ -63,8 +77,50 @@ export class PrismaDriverProofMediaRepository {
   ) {
     this.createMediaId = options.createMediaId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+    this.readAccessTtlSeconds = options.readAccessTtlSeconds ?? DEFAULT_READ_ACCESS_TTL_SECONDS;
     this.scanner = options.scanner;
     this.storage = options.storage ?? createLocalDriverProofMediaStorage(requireStorageRoot(options.storageRoot));
+  }
+
+  async createProofMediaReadAccess(
+    input: CreateDriverProofMediaReadAccessInput
+  ): Promise<CreateDriverProofMediaReadAccessResult> {
+    const shopDomain = normalizeShopDomain(input.shopDomain);
+    const shop = await this.prisma.shop.findUnique({ where: { shopDomain } });
+    if (shop === null) {
+      throw new DriverProofMediaScopeError(`Shop not installed: ${shopDomain}`);
+    }
+
+    const media = await this.prisma.driverProofMedia.findFirst({
+      where: {
+        deletedAt: null,
+        driverId: input.driverId,
+        id: input.mediaId,
+        shopId: shop.id
+      }
+    });
+    if (media === null) {
+      throw new DriverProofMediaScopeError(`Proof media not found for driver: ${input.mediaId}`);
+    }
+
+    if (this.storage.createReadAccess === undefined) {
+      throw new DriverProofMediaAccessUnavailableError();
+    }
+
+    const expiresAt = new Date(this.now().getTime() + this.readAccessTtlSeconds * 1000);
+    const access = await this.storage.createReadAccess({
+      contentType: media.contentType,
+      expiresAt,
+      storageKey: media.storageKey
+    });
+
+    return {
+      contentType: media.contentType,
+      expiresAt: expiresAt.toISOString(),
+      kind: toProofMediaKind(media.kind),
+      mediaId: media.id,
+      url: access.url
+    };
   }
 
   async storeProofMedia(input: StoreDriverProofMediaInput): Promise<StoreDriverProofMediaResult> {
@@ -338,6 +394,14 @@ function stripJpegExifApp1Segments(fileBytes: Buffer): Buffer {
 
 function toPrismaSource(source: DriverProofMediaSource): PrismaProofMediaSource {
   return source === 'camera' ? 'CAMERA' : 'LIBRARY';
+}
+
+function toProofMediaKind(kind: string): 'photo' {
+  if (kind === 'PHOTO') {
+    return 'photo';
+  }
+
+  throw new Error(`Unsupported driver proof media kind: ${kind}`);
 }
 
 function safePathSegment(value: string): string {
