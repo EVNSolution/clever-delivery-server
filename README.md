@@ -208,6 +208,19 @@ The route is registered when `JWT_SECRET` is configured. It verifies the Driver 
 
 See `docs/api/driver-consents.md` for the request/response contract, persistence model, and minimization notes.
 
+## Driver assigned route API readiness
+
+After consent is recorded, driver clients can read the route assigned to the bearer-token driver:
+
+```http
+GET /driver/assigned-route?routeContext=<route-plan-id-uuid>
+Authorization: Bearer <server-issued driver JWT>
+```
+
+The route is registered when `JWT_SECRET` is configured. It verifies the Driver API bearer token, scopes the read by token shop and driver, optionally binds the read to `routeContext`, and returns either `ASSIGNED_ROUTE` with ordered stop context or `NO_ASSIGNED_ROUTE`. Unlike route access lookup and consent submission, this response can include stop addresses and coordinates after the driver boundary is verified.
+
+See `docs/api/driver-assigned-route.md` for the response contract, data boundary, and compliance notes.
+
 ## Driver API event ingest readiness
 
 Driver clients should call this server, not Shopify Admin APIs directly. The first Driver API event route is prepared as:
@@ -230,7 +243,7 @@ Content-Type: application/json
 
 The route is registered when `JWT_SECRET` is configured. It verifies HS256 bearer tokens with audience `clever-delivery-driver`, extracts driver/shop context, validates event payloads, and records driver events idempotently by `(driverId, clientEventId)`.
 
-Driver login/session issuance and route assignment list APIs are still follow-up work.
+Driver login/session issuance, stop action writes, and dedicated location access/usage ledgers are still follow-up work.
 
 ## Project references
 
