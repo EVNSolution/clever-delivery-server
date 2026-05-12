@@ -26,6 +26,8 @@ type ParsedOrderSyncPayload = {
   skipped: number;
 };
 
+const ORDER_SYNC_TIMESTAMP_FIELDS = new Set(['cancelledAt', 'createdAt', 'processedAt', 'updatedAt']);
+
 export type AdminOrdersDependencies = {
   orderSyncService: {
     listCanonicalOrders(input: {
@@ -183,6 +185,10 @@ function readSyncPayload(value: unknown): {
       result.order !== null
   );
   const reasons = results.flatMap((result) => result.issues);
+  const timestampIssues = reasons.filter((reason) => ORDER_SYNC_TIMESTAMP_FIELDS.has(reason.field));
+  if (timestampIssues.length > 0) {
+    throw createSyncPayloadValidationError('Invalid order sync timestamp', timestampIssues);
+  }
 
   return {
     orders: valid.map((result) => result.order),

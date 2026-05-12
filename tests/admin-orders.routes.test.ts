@@ -159,7 +159,7 @@ describe('Admin orders routes', () => {
     }
   });
 
-  test('skips malformed order snapshot and returns warnings instead of failing whole sync', async () => {
+  test('rejects malformed required order sync timestamp instead of skipping the snapshot', async () => {
     const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
     const app = await buildApp({ adminOrders: dependencies });
 
@@ -178,30 +178,21 @@ describe('Admin orders routes', () => {
         url: '/admin/orders/sync'
       });
 
-      expect(response.statusCode).toBe(200);
+      expect(response.statusCode).toBe(400);
       expect(response.json()).toEqual({
-        data: {
-          orders: [],
-          sync: {
-            created: 0,
-            needsReview: 0,
-            readyToPlan: 0,
-            received: 1,
-            skipped: 1,
-            unchanged: 0,
-            updated: 0
-          },
-          warnings: [
+        data: null,
+        error: {
+          code: 'INVALID_ORDER_SYNC_PAYLOAD',
+          details: [
             {
-              code: 'ORDER_SYNC_SNAPSHOT_SKIPPED',
               field: 'updatedAt',
-              message: 'Expected ISO date string',
               orderIndex: 0,
-              orderName: '#1035'
+              orderName: '#1035',
+              reason: 'Expected ISO date string'
             }
-          ]
-        },
-        error: null
+          ],
+          message: 'Invalid order sync timestamp'
+        }
       });
       expect(syncOrdersSnapshot).not.toHaveBeenCalled();
     } finally {
@@ -209,7 +200,7 @@ describe('Admin orders routes', () => {
     }
   });
 
-  test('syncs valid snapshots and skips only malformed snapshots', async () => {
+  test('rejects the whole order sync payload when any snapshot has an invalid timestamp', async () => {
     const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
     const app = await buildApp({ adminOrders: dependencies });
 
@@ -235,35 +226,64 @@ describe('Admin orders routes', () => {
         url: '/admin/orders/sync'
       });
 
-      expect(response.statusCode).toBe(200);
+      expect(response.statusCode).toBe(400);
       expect(response.json()).toEqual({
-        data: {
-          orders: [canonicalOrder],
-          sync: {
-            created: 1,
-            needsReview: 0,
-            readyToPlan: 1,
-            received: 2,
-            skipped: 1,
-            unchanged: 0,
-            updated: 0
-          },
-          warnings: [
+        data: null,
+        error: {
+          code: 'INVALID_ORDER_SYNC_PAYLOAD',
+          details: [
             {
-              code: 'ORDER_SYNC_SNAPSHOT_SKIPPED',
               field: 'updatedAt',
-              message: 'Expected ISO date string',
               orderIndex: 1,
-              orderName: '#1036'
+              orderName: '#1036',
+              reason: 'Expected ISO date string'
             }
-          ]
-        },
-        error: null
+          ],
+          message: 'Invalid order sync timestamp'
+        }
       });
-      expect(syncOrdersSnapshot).toHaveBeenCalledOnce();
-      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
-      expect(syncInput?.orders).toHaveLength(1);
-      expect(syncInput?.orders[0]?.name).toBe('#1035');
+      expect(syncOrdersSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects optional order sync timestamp fields when they are malformed', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      firstOrder.createdAt = 'not-a-date';
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: {
+          code: 'INVALID_ORDER_SYNC_PAYLOAD',
+          details: [
+            {
+              field: 'createdAt',
+              orderIndex: 0,
+              orderName: '#1035',
+              reason: 'Expected ISO date string'
+            }
+          ],
+          message: 'Invalid order sync timestamp'
+        }
+      });
+      expect(syncOrdersSnapshot).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }
