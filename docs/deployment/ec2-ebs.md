@@ -163,6 +163,19 @@ A production release still needs private evidence for scanner endpoint deploymen
 
 ### Proof-media cleanup scheduler evidence
 
+Before filling private production evidence, capture the non-secret source/runtime
+seed:
+
+```bash
+npm run driver:proof-media:evidence:seed
+```
+
+The seed reports commit/ref, proof-media config presence, and remaining evidence
+gates without printing bucket names, endpoints, access keys, bearer tokens, proof
+media, storage keys, database credentials, or completed evidence references. Use
+it as the starting audit record in the private evidence store, then attach the
+real bucket/IAM, signed URL, scanner, alerting, and scheduler evidence there.
+
 Proof-media retention cleanup can be run manually or by a host scheduler:
 
 ```bash

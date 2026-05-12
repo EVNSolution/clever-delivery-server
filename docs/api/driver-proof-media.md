@@ -29,6 +29,20 @@ The command does not start the HTTP server. It connects Prisma, applies `DRIVER_
 
 `runDriverProofMediaRetentionCleanup()` accepts an optional `DriverProofMediaCleanupMonitor`. The monitor receives sanitized cleanup-run evidence: scanned count, deleted count, missing file count, `uploadedBefore`, `deletedAt`, retention days, and optional batch limit. The monitor payload intentionally excludes media ids, storage keys, file bytes, customer addresses, coordinates, phone numbers, and proof images. The default cleanup command wires `PrismaDriverProofMediaCleanupMonitor`, which creates a `RetentionJobRun` row with `jobName=driver-proof-media-retention-cleanup`, `status=SUCCEEDED`, sanitized counts, cutoff timestamps, and optional private `DRIVER_PROOF_MEDIA_CLEANUP_EVIDENCE_REF`. A production scheduler can run the command and reference private job/log evidence through that env value, but deployed scheduler evidence still remains a release blocker.
 
+Before filling production proof-media release evidence, generate a non-secret
+runtime/source seed with:
+
+```bash
+npm run driver:proof-media:evidence:seed
+```
+
+The seed prints current source commit/ref, proof-media runtime config presence,
+remaining private evidence gates, and tracking issues without printing bucket
+names, endpoints, access keys, bearer tokens, storage keys, proof bytes, or
+completed evidence references. Copy the seed into the approved private evidence
+workspace and fill real bucket/IAM, signed URL, scanner, alerting, cleanup
+scheduler, and private evidence-store references there.
+
 ## GET `/driver/proof-media/:mediaId/access`
 
 Request:
