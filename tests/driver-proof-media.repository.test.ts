@@ -171,6 +171,60 @@ describe('PrismaDriverProofMediaRepository', () => {
     ]);
   });
 
+  test('records clean scanner outcomes without proof bytes before writing accepted media', async () => {
+    const writes: { fileBytes: Buffer; storageKey: string }[] = [];
+    const scannerObservations: Record<string, unknown>[] = [];
+    const storage: DriverProofMediaStorageBackend = {
+      remove: () => Promise.resolve('removed'),
+      write: (input) => {
+        writes.push(input);
+        return Promise.resolve();
+      }
+    };
+    const { prisma } = createPrismaHarness();
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, {
+      createMediaId: () => '11111111-1111-4111-8111-111111111111',
+      now: () => now,
+      scanMonitor: {
+        recordProofMediaScan: (input: Record<string, unknown>) => {
+          scannerObservations.push(input);
+          return Promise.resolve();
+        }
+      },
+      scanner: {
+        scanProofMedia: () => Promise.resolve({ status: 'clean' })
+      },
+      storage
+    } as never);
+    const sanitizedBytes = jpegWithoutExifBytes();
+    const sanitizedSha256 = sha256Hex(sanitizedBytes);
+    const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg';
+
+    await repository.storeProofMedia({
+      contentType: 'image/jpeg',
+      deliveryStopId: 'stop-id',
+      driverId: 'driver-id',
+      fileBytes: jpegWithExifBytes(),
+      filename: 'proof-with-exif.jpg',
+      routePlanId: 'route-plan-id',
+      shopDomain: 'tomatono.myshopify.com',
+      source: 'camera'
+    });
+
+    expect(scannerObservations).toEqual([
+      {
+        contentType: 'image/jpeg',
+        mediaId: '11111111-1111-4111-8111-111111111111',
+        scannedAt: now,
+        sha256: sanitizedSha256,
+        status: 'clean',
+        storageKey
+      }
+    ]);
+    expect(scannerObservations[0]).not.toHaveProperty('fileBytes');
+    expect(writes).toEqual([{ fileBytes: sanitizedBytes, storageKey }]);
+  });
+
   test('creates scoped short-lived proof media read access through the storage backend', async () => {
     const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/proof-media-id.jpg';
     const readAccessRequests: {
@@ -237,6 +291,7 @@ describe('PrismaDriverProofMediaRepository', () => {
   test('rejects scanner-blocked proof media before writing bytes or metadata', async () => {
     const writes: { fileBytes: Buffer; storageKey: string }[] = [];
     const scannerCalls: { contentType: string; fileBytes: Buffer; sha256: string; storageKey: string }[] = [];
+    const scannerObservations: Record<string, unknown>[] = [];
     const storage: DriverProofMediaStorageBackend = {
       remove: () => Promise.resolve('removed'),
       write: (input) => {
@@ -248,6 +303,12 @@ describe('PrismaDriverProofMediaRepository', () => {
     const repository = new PrismaDriverProofMediaRepository(prisma as never, {
       createMediaId: () => '11111111-1111-4111-8111-111111111111',
       now: () => now,
+      scanMonitor: {
+        recordProofMediaScan: (input: Record<string, unknown>) => {
+          scannerObservations.push(input);
+          return Promise.resolve();
+        }
+      },
       scanner: {
         scanProofMedia: (input: { contentType: string; fileBytes: Buffer; sha256: string; storageKey: string }) => {
           scannerCalls.push(input);
@@ -258,6 +319,7 @@ describe('PrismaDriverProofMediaRepository', () => {
     } as never);
     const sanitizedBytes = jpegWithoutExifBytes();
     const sanitizedSha256 = sha256Hex(sanitizedBytes);
+    const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg';
 
     await expect(
       repository.storeProofMedia({
@@ -277,9 +339,21 @@ describe('PrismaDriverProofMediaRepository', () => {
         contentType: 'image/jpeg',
         fileBytes: sanitizedBytes,
         sha256: sanitizedSha256,
-        storageKey: 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg'
+        storageKey
       }
     ]);
+    expect(scannerObservations).toEqual([
+      {
+        contentType: 'image/jpeg',
+        mediaId: '11111111-1111-4111-8111-111111111111',
+        reason: 'malware signature fixture',
+        scannedAt: now,
+        sha256: sanitizedSha256,
+        status: 'rejected',
+        storageKey
+      }
+    ]);
+    expect(scannerObservations[0]).not.toHaveProperty('fileBytes');
     expect(writes).toEqual([]);
     expect(prisma.driverProofMedia.create).not.toHaveBeenCalled();
   });
