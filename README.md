@@ -241,7 +241,7 @@ Authorization: Bearer <server-issued driver JWT>
 Content-Type: multipart/form-data
 ```
 
-Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, strips JPEG EXIF APP1 metadata before persistence, runs an optional `DriverProofMediaScanner` hook on sanitized bytes before storage, writes accepted bytes through the proof-media storage backend, and stores `DriverProofMedia` metadata with `storageKey`, sanitized `sizeBytes`, and sanitized `sha256`. Scanner rejections return `422 PROOF_MEDIA_REJECTED` without storing bytes or metadata.
+Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, strips JPEG EXIF APP1 metadata before persistence, runs an optional `DriverProofMediaScanner` hook on sanitized bytes before storage, records optional scanner monitoring metadata without proof bytes, writes accepted bytes through the proof-media storage backend, and stores `DriverProofMedia` metadata with `storageKey`, sanitized `sizeBytes`, and sanitized `sha256`. Scanner rejections return `422 PROOF_MEDIA_REJECTED` without storing bytes or metadata.
 
 Accepted media can be read only through the scoped access contract:
 
@@ -250,7 +250,7 @@ GET /driver/proof-media/:mediaId/access
 Authorization: Bearer <server-issued driver JWT>
 ```
 
-The read-access route verifies the bearer token, scopes the media row to token shop + driver, requires `deletedAt: null`, and then asks the storage backend for a short-lived URL. `DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defaults to 300 seconds. The default backend writes/removes local files under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`) but intentionally does not expose public file URLs; production object storage must implement `createReadAccess()` before this endpoint can return signed URLs. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage ownership, scanner integration evidence, and private evidence storage remain hardening work.
+The read-access route verifies the bearer token, scopes the media row to token shop + driver, requires `deletedAt: null`, and then asks the storage backend for a short-lived URL. `DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defaults to 300 seconds. The default backend writes/removes local files under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`) but intentionally does not expose public file URLs; production object storage must implement `createReadAccess()` before this endpoint can return signed URLs. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage ownership, scanner backend wiring/deployment evidence, scanner monitoring backend wiring/evidence, and private evidence storage remain hardening work.
 
 Manual or cron-style cleanup command:
 

@@ -51,6 +51,20 @@ export type DriverProofMediaScanner = {
   scanProofMedia(input: DriverProofMediaScanInput): Promise<DriverProofMediaScanResult>;
 };
 
+export type DriverProofMediaScanMonitorInput = {
+  contentType: string;
+  mediaId: string;
+  reason?: string;
+  scannedAt: Date;
+  sha256: string;
+  status: DriverProofMediaScanResult['status'];
+  storageKey: string;
+};
+
+export type DriverProofMediaScanMonitor = {
+  recordProofMediaScan(input: DriverProofMediaScanMonitorInput): Promise<void>;
+};
+
 export type DriverProofMediaServiceContract = {
   createProofMediaReadAccess(input: CreateDriverProofMediaReadAccessInput): Promise<CreateDriverProofMediaReadAccessResult>;
   storeProofMedia(input: StoreDriverProofMediaInput): Promise<StoreDriverProofMediaResult>;

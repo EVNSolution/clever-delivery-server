@@ -11,6 +11,8 @@ import {
 import type {
   CreateDriverProofMediaReadAccessInput,
   CreateDriverProofMediaReadAccessResult,
+  DriverProofMediaScanMonitor,
+  DriverProofMediaScanResult,
   DriverProofMediaScanner,
   DriverProofMediaSource,
   StoreDriverProofMediaInput,
@@ -45,6 +47,7 @@ type DriverProofMediaRepositoryOptions = {
   createMediaId?: () => string;
   now?: () => Date;
   readAccessTtlSeconds?: number;
+  scanMonitor?: DriverProofMediaScanMonitor;
   scanner?: DriverProofMediaScanner;
   storage?: DriverProofMediaStorageBackend;
   storageRoot?: string;
@@ -68,6 +71,7 @@ export class PrismaDriverProofMediaRepository {
   private readonly createMediaId: () => string;
   private readonly now: () => Date;
   private readonly readAccessTtlSeconds: number;
+  private readonly scanMonitor: DriverProofMediaScanMonitor | undefined;
   private readonly scanner: DriverProofMediaScanner | undefined;
   private readonly storage: DriverProofMediaStorageBackend;
 
@@ -78,6 +82,7 @@ export class PrismaDriverProofMediaRepository {
     this.createMediaId = options.createMediaId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
     this.readAccessTtlSeconds = options.readAccessTtlSeconds ?? DEFAULT_READ_ACCESS_TTL_SECONDS;
+    this.scanMonitor = options.scanMonitor;
     this.scanner = options.scanner;
     this.storage = options.storage ?? createLocalDriverProofMediaStorage(requireStorageRoot(options.storageRoot));
   }
@@ -176,6 +181,16 @@ export class PrismaDriverProofMediaRepository {
       sha256,
       storageKey
     });
+    if (scanResult !== undefined) {
+      await this.recordScanResult({
+        contentType: input.contentType,
+        mediaId,
+        scanResult,
+        scannedAt: uploadedAt,
+        sha256,
+        storageKey
+      });
+    }
     if (scanResult?.status === 'rejected') {
       throw new DriverProofMediaScanRejectedError(scanResult.reason);
     }
@@ -244,6 +259,37 @@ export class PrismaDriverProofMediaRepository {
       missingFiles,
       scanned: expiredMedia.length
     };
+  }
+
+  private async recordScanResult(input: {
+    contentType: string;
+    mediaId: string;
+    scanResult: DriverProofMediaScanResult;
+    scannedAt: Date;
+    sha256: string;
+    storageKey: string;
+  }): Promise<void> {
+    if (input.scanResult.status === 'rejected') {
+      await this.scanMonitor?.recordProofMediaScan({
+        contentType: input.contentType,
+        mediaId: input.mediaId,
+        reason: input.scanResult.reason,
+        scannedAt: input.scannedAt,
+        sha256: input.sha256,
+        status: input.scanResult.status,
+        storageKey: input.storageKey
+      });
+      return;
+    }
+
+    await this.scanMonitor?.recordProofMediaScan({
+      contentType: input.contentType,
+      mediaId: input.mediaId,
+      scannedAt: input.scannedAt,
+      sha256: input.sha256,
+      status: input.scanResult.status,
+      storageKey: input.storageKey
+    });
   }
 }
 

@@ -12,7 +12,7 @@ The repository writes, removes, and optionally creates read access through a `Dr
 
 `DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defines the short-lived signed/read access lifetime and defaults to 300 seconds. `DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, concrete signed URL backend wiring, scanner integration/deployment evidence, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
 
-JPEG uploads are sanitized before byte persistence: valid EXIF APP1 segments are removed, and returned/stored `sha256` plus `sizeBytes` describe the sanitized bytes. If a `DriverProofMediaScanner` is configured, the scanner receives the sanitized bytes, content type, storage key, and sanitized SHA-256 before any byte write or metadata create. A rejected scan aborts persistence and maps to `422 PROOF_MEDIA_REJECTED`. This reduces accidental location/device metadata retention and provides a server-side scanner integration point, but it is not proof that a production malware scanner, signed access, or private object storage control is deployed.
+JPEG uploads are sanitized before byte persistence: valid EXIF APP1 segments are removed, and returned/stored `sha256` plus `sizeBytes` describe the sanitized bytes. If a `DriverProofMediaScanner` is configured, the scanner receives the sanitized bytes, content type, storage key, and sanitized SHA-256 before any byte write or metadata create. If a `DriverProofMediaScanMonitor` is configured, it receives scanner outcome metadata (`clean` or `rejected`), media id, storage key, sanitized SHA-256, content type, scan timestamp, and private rejection reason when applicable; it never receives proof file bytes. A rejected scan aborts persistence and maps to `422 PROOF_MEDIA_REJECTED`. This reduces accidental location/device metadata retention and provides server-side scanner and monitoring integration points, but it is not proof that a production malware scanner, signed access, monitoring backend, or private object storage control is deployed.
 
 Manual or cron-style retention cleanup uses:
 
@@ -160,11 +160,12 @@ The repository checks all of the following before writing bytes or metadata:
 - Use synthetic proof images in tests and public PR evidence.
 - JPEG EXIF APP1 metadata is stripped before local byte storage and before `sha256` / `sizeBytes` are recorded.
 - The scan hook runs after EXIF stripping and before storage/metadata writes; scan rejection should not leak scanner rule names or signature details to the driver response.
+- The scan monitor hook records clean/rejected scanner outcome metadata without proof file bytes. Private monitoring backends may receive the scanner rejection reason, but public issue/PR/store evidence should use sanitized references only.
 - `PrismaDriverProofMediaRepository.deleteExpiredProofMedia()` selects undeleted metadata older than the configured cutoff, removes stored bytes through the configured storage backend, and marks rows with `deletedAt`.
 - Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
 - Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
 - `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled cleanup. The default runtime backend is local filesystem storage.
-- Object storage backend wiring, production signed URL credentials/evidence, production virus/malware scanner deployment evidence, and private evidence storage remain follow-up hardening items.
+- Object storage backend wiring, production signed URL credentials/evidence, production virus/malware scanner deployment evidence, production scanner monitoring/alerting backend evidence, and private evidence storage remain follow-up hardening items.
 
 ## Adjacent APIs
 
