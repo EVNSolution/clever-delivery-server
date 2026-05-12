@@ -165,9 +165,27 @@ The repository includes a credential-free foundation for pulling Shopify orders 
 
 Live sync still requires an installed shop token in the `shops` table and a real Shopify store. By default Shopify order access is limited to recent orders unless the app has appropriate order scopes/access.
 
+## Driver route access lookup API readiness
+
+Driver clients should call this server, not Shopify Admin APIs directly. The first route+phone access contract is now prepared:
+
+```http
+POST /driver/route-access/lookup
+Content-Type: application/json
+
+{
+  "routeContext": "<route-plan-id-uuid>",
+  "phoneE164": "+14165550123"
+}
+```
+
+The route is registered when `JWT_SECRET` is configured with the Driver API runtime. It validates that route context and E.164 phone are present before lookup, then checks the existing shop/route plan/assigned driver boundary. A matched active driver receives only non-sensitive company guidance and `nextState: "consent_required"`. Missing route, phone mismatch, inactive driver, and suspended driver responses do not include stop/customer/location details.
+
+See `docs/api/driver-route-access.md` for the response contract and minimization notes.
+
 ## Driver API event ingest readiness
 
-Driver clients should call this server, not Shopify Admin APIs directly. The first Driver API route is prepared as:
+Driver clients should call this server, not Shopify Admin APIs directly. The first Driver API event route is prepared as:
 
 ```http
 POST /driver/events
