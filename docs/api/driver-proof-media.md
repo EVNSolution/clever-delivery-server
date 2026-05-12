@@ -8,7 +8,7 @@ This endpoint is a binary upload companion to `POST /driver/events`. The driver 
 
 The route is registered with the Driver API runtime when `JWT_SECRET` is configured. Runtime dependencies include `DRIVER_PROOF_MEDIA_STORAGE_DIR`, which defaults to `var/driver-proof-media` when unset. That default local path is ignored by git and is suitable for local/dev smoke only.
 
-Production storage ownership, retention/deletion automation, and object-store migration remain hardening work. Do not treat the local filesystem storage path as the final production retention policy.
+`DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, signed retrieval/access, malware scanning, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
 
 ## POST `/driver/proof-media`
 
@@ -96,8 +96,10 @@ The repository checks all of the following before writing bytes or metadata:
 - The API returns metadata only; it does not echo raw file bytes.
 - Do not log multipart bodies, file bytes, customer addresses, or real proof images.
 - Use synthetic proof images in tests and public PR evidence.
-- Production retention/deletion thresholds are still pending. The initial engineering default in `docs/compliance/location-data-handling.md` treats proof media like proof-of-delivery support evidence and requires a later deletion/anonymization job.
-- Object storage, signed URL access, virus/malware scanning, and private evidence storage are follow-up hardening items.
+- `PrismaDriverProofMediaRepository.deleteExpiredProofMedia()` selects undeleted metadata older than the configured cutoff, removes local stored bytes under the configured storage root, and marks rows with `deletedAt`.
+- Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
+- Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
+- Object storage, signed URL access, virus/malware scanning, and private evidence storage remain follow-up hardening items.
 
 ## Adjacent APIs
 

@@ -7,7 +7,16 @@ import { PrismaDriverProofMediaRepository } from './driver-proof-media.repositor
 import { PrismaDriverRouteAccessRepository } from './driver-route-access.repository.js';
 import type { DriverApiDependencies } from '../../routes/driver-events.routes.js';
 
-export type DriverApiRuntimeEnv = Partial<Record<'DRIVER_PROOF_MEDIA_STORAGE_DIR' | 'JWT_SECRET', string>>;
+export const DEFAULT_DRIVER_PROOF_MEDIA_RETENTION_DAYS = 180;
+
+export type DriverApiRuntimeEnv = Partial<Record<
+  'DRIVER_PROOF_MEDIA_RETENTION_DAYS' | 'DRIVER_PROOF_MEDIA_STORAGE_DIR' | 'JWT_SECRET',
+  string
+>>;
+
+export type DriverProofMediaRetentionPolicy = {
+  retentionDays: number;
+};
 
 type LoadDriverApiDependenciesInput = {
   env: DriverApiRuntimeEnv;
@@ -32,6 +41,20 @@ export function loadDriverApiDependencies(
     }),
     routeAccessService: new PrismaDriverRouteAccessRepository(input.prisma)
   };
+}
+
+export function loadDriverProofMediaRetentionPolicy(env: DriverApiRuntimeEnv): DriverProofMediaRetentionPolicy {
+  const rawRetentionDays = readOptional(env.DRIVER_PROOF_MEDIA_RETENTION_DAYS);
+  if (rawRetentionDays === undefined) {
+    return { retentionDays: DEFAULT_DRIVER_PROOF_MEDIA_RETENTION_DAYS };
+  }
+
+  const retentionDays = Number(rawRetentionDays);
+  if (!Number.isInteger(retentionDays) || retentionDays <= 0) {
+    throw new Error('DRIVER_PROOF_MEDIA_RETENTION_DAYS must be a positive integer');
+  }
+
+  return { retentionDays };
 }
 
 function readOptional(value: string | undefined): string | undefined {

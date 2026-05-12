@@ -239,7 +239,7 @@ Authorization: Bearer <server-issued driver JWT>
 Content-Type: multipart/form-data
 ```
 
-Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, writes bytes under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`), and stores `DriverProofMedia` metadata with `storageKey`, `sizeBytes`, and `sha256`.
+Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, writes bytes under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`), and stores `DriverProofMedia` metadata with `storageKey`, `sizeBytes`, and `sha256`. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage, signed retrieval/access, and malware scanning remain hardening work.
 
 See `docs/api/driver-proof-media.md` for the request/response contract and production storage/retention caveats.
 
@@ -265,7 +265,7 @@ Content-Type: application/json
 
 The route is registered when `JWT_SECRET` is configured. It verifies HS256 bearer tokens with audience `clever-delivery-driver`, extracts driver/shop context, validates event payloads, and records driver events idempotently by `(driverId, clientEventId)`.
 
-Driver login/session issuance, production proof-media object storage/retention hardening, stop action status mutation semantics, and dedicated location access/usage ledgers are still follow-up work.
+Driver login/session issuance, production proof-media object storage/access/scanning scheduler hardening, stop action status mutation semantics, and dedicated location access/usage ledgers are still follow-up work.
 
 ## Project references
 
