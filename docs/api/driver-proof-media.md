@@ -10,6 +10,8 @@ The route is registered with the Driver API runtime when `JWT_SECRET` is configu
 
 `DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, signed retrieval/access, malware scanning, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
 
+JPEG uploads are sanitized before byte persistence: valid EXIF APP1 segments are removed, and returned/stored `sha256` plus `sizeBytes` describe the sanitized bytes. This reduces accidental location/device metadata retention in local proof storage, but it is not a replacement for production malware scanning, signed access, or private object storage controls.
+
 Manual or cron-style retention cleanup uses:
 
 ```bash
@@ -89,7 +91,7 @@ A bearer-token driver that is not assigned to the `routePlanId`/`deliveryStopId`
 - shop, driver, route plan, and delivery stop references
 - `kind: PHOTO`
 - source (`CAMERA` or `LIBRARY`)
-- MIME type, original filename, storage key, byte size, SHA-256 hash
+- MIME type, original filename, storage key, sanitized byte size, sanitized SHA-256 hash
 - upload timestamp and optional future deletion timestamp
 
 The repository checks all of the following before writing bytes or metadata:
@@ -104,6 +106,7 @@ The repository checks all of the following before writing bytes or metadata:
 - The API returns metadata only; it does not echo raw file bytes.
 - Do not log multipart bodies, file bytes, customer addresses, or real proof images.
 - Use synthetic proof images in tests and public PR evidence.
+- JPEG EXIF APP1 metadata is stripped before local byte storage and before `sha256` / `sizeBytes` are recorded.
 - `PrismaDriverProofMediaRepository.deleteExpiredProofMedia()` selects undeleted metadata older than the configured cutoff, removes local stored bytes under the configured storage root, and marks rows with `deletedAt`.
 - Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
 - Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
