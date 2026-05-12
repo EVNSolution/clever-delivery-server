@@ -89,6 +89,15 @@ enum DriverConsentType {
   PERSONAL_INFORMATION
 }
 
+enum DriverProofMediaKind {
+  PHOTO
+}
+
+enum DriverProofMediaSource {
+  CAMERA
+  LIBRARY
+}
+
 model Shop {
   id                          String                @id @default(uuid()) @db.Uuid
   shopDomain                  String                @db.Text
@@ -112,6 +121,7 @@ model Shop {
   vehicles                    Vehicle[]
   driverEvents                DriverEvent[]
   driverConsentRecords        DriverConsentRecord[]
+  driverProofMedia            DriverProofMedia[]
 
   @@unique([shopDomain])
   @@unique([shopifyShopGid])
@@ -173,33 +183,34 @@ model Order {
 }
 
 model DeliveryStop {
-  id              String             @id @default(uuid()) @db.Uuid
-  shopId          String             @db.Uuid
-  shop            Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  orderId         String             @db.Uuid
-  order           Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  recipientName   String?            @db.Text
-  phone           String?            @db.Text
-  address1        String?            @db.Text
-  address2        String?            @db.Text
-  city            String?            @db.Text
-  province        String?            @db.Text
-  postalCode      String?            @db.Text
-  countryCode     String?            @db.Text
-  latitude        Decimal?           @db.Decimal(10, 7)
-  longitude       Decimal?           @db.Decimal(10, 7)
-  geocodeStatus   GeocodeStatus      @default(PENDING)
-  deliveryDate    DateTime?          @db.Date
-  timeWindowStart DateTime?          @db.Timestamptz(6)
-  timeWindowEnd   DateTime?          @db.Timestamptz(6)
-  serviceMinutes  Int                @default(5)
-  priority        Int                @default(0)
-  instructions    String?            @db.Text
-  status          DeliveryStopStatus @default(PENDING)
-  createdAt       DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime           @updatedAt @db.Timestamptz(6)
-  routePlanStops  RoutePlanStop[]
-  driverEvents    DriverEvent[]
+  id               String             @id @default(uuid()) @db.Uuid
+  shopId           String             @db.Uuid
+  shop             Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderId          String             @db.Uuid
+  order            Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  recipientName    String?            @db.Text
+  phone            String?            @db.Text
+  address1         String?            @db.Text
+  address2         String?            @db.Text
+  city             String?            @db.Text
+  province         String?            @db.Text
+  postalCode       String?            @db.Text
+  countryCode      String?            @db.Text
+  latitude         Decimal?           @db.Decimal(10, 7)
+  longitude        Decimal?           @db.Decimal(10, 7)
+  geocodeStatus    GeocodeStatus      @default(PENDING)
+  deliveryDate     DateTime?          @db.Date
+  timeWindowStart  DateTime?          @db.Timestamptz(6)
+  timeWindowEnd    DateTime?          @db.Timestamptz(6)
+  serviceMinutes   Int                @default(5)
+  priority         Int                @default(0)
+  instructions     String?            @db.Text
+  status           DeliveryStopStatus @default(PENDING)
+  createdAt        DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime           @updatedAt @db.Timestamptz(6)
+  routePlanStops   RoutePlanStop[]
+  driverEvents     DriverEvent[]
+  driverProofMedia DriverProofMedia[]
 
   @@unique([shopId, orderId])
   @@index([shopId, deliveryDate, status])
@@ -207,26 +218,27 @@ model DeliveryStop {
 }
 
 model RoutePlan {
-  id               String          @id @default(uuid()) @db.Uuid
-  shopId           String          @db.Uuid
-  shop             Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  name             String          @db.Text
-  planDate         DateTime        @db.Date
-  status           RoutePlanStatus @default(DRAFT)
-  driverId         String?         @db.Uuid
-  driver           Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
-  vehicleId        String?         @db.Uuid
-  vehicle          Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  depotLatitude    Decimal?        @db.Decimal(10, 7)
-  depotLongitude   Decimal?        @db.Decimal(10, 7)
-  optimizerVersion String          @db.Text
+  id               String             @id @default(uuid()) @db.Uuid
+  shopId           String             @db.Uuid
+  shop             Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name             String             @db.Text
+  planDate         DateTime           @db.Date
+  status           RoutePlanStatus    @default(DRAFT)
+  driverId         String?            @db.Uuid
+  driver           Driver?            @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  vehicleId        String?            @db.Uuid
+  vehicle          Vehicle?           @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  depotLatitude    Decimal?           @db.Decimal(10, 7)
+  depotLongitude   Decimal?           @db.Decimal(10, 7)
+  optimizerVersion String             @db.Text
   constraints      Json
   metrics          Json
-  createdBy        String?         @db.Text
-  createdAt        DateTime        @default(now()) @db.Timestamptz(6)
-  updatedAt        DateTime        @updatedAt @db.Timestamptz(6)
+  createdBy        String?            @db.Text
+  createdAt        DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime           @updatedAt @db.Timestamptz(6)
   routeStops       RoutePlanStop[]
   driverEvents     DriverEvent[]
+  driverProofMedia DriverProofMedia[]
 
   @@index([shopId, planDate, status])
   @@index([shopId, driverId, status])
@@ -252,20 +264,21 @@ model RoutePlanStop {
 }
 
 model Driver {
-  id             String                @id @default(uuid()) @db.Uuid
-  shopId         String                @db.Uuid
-  shop           Shop                  @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  displayName    String                @db.Text
-  phone          String?               @db.Text
-  status         DriverStatus          @default(ACTIVE)
-  authSubject    String?               @unique @db.Text
-  lastSeenAt     DateTime?             @db.Timestamptz(6)
-  createdAt      DateTime              @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime              @updatedAt @db.Timestamptz(6)
-  sessions       DriverSession[]
-  routePlans     RoutePlan[]
-  driverEvents   DriverEvent[]
-  consentRecords DriverConsentRecord[]
+  id               String                @id @default(uuid()) @db.Uuid
+  shopId           String                @db.Uuid
+  shop             Shop                  @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  displayName      String                @db.Text
+  phone            String?               @db.Text
+  status           DriverStatus          @default(ACTIVE)
+  authSubject      String?               @unique @db.Text
+  lastSeenAt       DateTime?             @db.Timestamptz(6)
+  createdAt        DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime              @updatedAt @db.Timestamptz(6)
+  sessions         DriverSession[]
+  routePlans       RoutePlan[]
+  driverEvents     DriverEvent[]
+  consentRecords   DriverConsentRecord[]
+  driverProofMedia DriverProofMedia[]
 
   @@index([shopId, status])
   @@map("drivers")
@@ -304,6 +317,33 @@ model DriverConsentRecord {
   @@unique([driverId, consentType, consentVersion])
   @@index([shopId, driverId, recordedAt])
   @@map("driver_consent_records")
+}
+
+model DriverProofMedia {
+  id               String                 @id @default(uuid()) @db.Uuid
+  shopId           String                 @db.Uuid
+  shop             Shop                   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  driverId         String                 @db.Uuid
+  driver           Driver                 @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  routePlanId      String                 @db.Uuid
+  routePlan        RoutePlan              @relation(fields: [routePlanId], references: [id], onDelete: Cascade)
+  deliveryStopId   String                 @db.Uuid
+  deliveryStop     DeliveryStop           @relation(fields: [deliveryStopId], references: [id], onDelete: Cascade)
+  kind             DriverProofMediaKind   @default(PHOTO)
+  source           DriverProofMediaSource
+  contentType      String                 @db.Text
+  originalFilename String?                @db.Text
+  storageKey       String                 @db.Text
+  sizeBytes        Int
+  sha256           String                 @db.Text
+  uploadedAt       DateTime               @db.Timestamptz(6)
+  deletedAt        DateTime?              @db.Timestamptz(6)
+  createdAt        DateTime               @default(now()) @db.Timestamptz(6)
+
+  @@unique([shopId, storageKey])
+  @@index([shopId, routePlanId, deliveryStopId, uploadedAt])
+  @@index([driverId, uploadedAt])
+  @@map("driver_proof_media")
 }
 
 model Vehicle {

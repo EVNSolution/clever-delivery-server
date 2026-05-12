@@ -96,7 +96,8 @@ A successful assigned route read provides stop address/location context to the d
 
 ## Follow-up APIs
 
-- stop detail read and proof-of-delivery write actions
+- proof media upload: `docs/api/driver-proof-media.md`
+- stop detail read and final proof-of-delivery status mutation semantics
 - driver session/access token issuance after route+phone lookup
 - server-side current-consent/version enforcement for route/stop reads when required by the production access model
 - dedicated location access/usage logging for route/stop reads

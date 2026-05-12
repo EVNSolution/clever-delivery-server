@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import helmet from '@fastify/helmet';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
@@ -33,6 +34,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const app = Fastify({ logger: options.logger ?? false });
 
   registerJsonBodyParser(app);
+  await app.register(multipart, {
+    limits: {
+      fields: 8,
+      fileSize: 10 * 1024 * 1024,
+      files: 1,
+      parts: 12
+    }
+  });
   await app.register(helmet);
   await app.register(cors, { origin: options.corsOrigin ?? false });
   registerHealthRoutes(app);

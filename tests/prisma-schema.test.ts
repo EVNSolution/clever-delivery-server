@@ -36,6 +36,7 @@ describe('Prisma schema', () => {
       'Driver',
       'DriverSession',
       'DriverConsentRecord',
+      'DriverProofMedia',
       'Vehicle',
       'DriverEvent'
     ]) {
@@ -47,7 +48,11 @@ describe('Prisma schema', () => {
     expect(schema).toMatch(/@@unique\(\[routePlanId, sequence\]/);
     expect(schema).toMatch(/@@unique\(\[routePlanId, deliveryStopId\]/);
     expect(schema).toContain('enum DriverConsentType');
+    expect(schema).toContain('enum DriverProofMediaKind');
+    expect(schema).toContain('enum DriverProofMediaSource');
     expect(schema).toMatch(/@@unique\(\[driverId, consentType, consentVersion\]/);
+    expect(schema).toMatch(/@@unique\(\[shopId, storageKey\]/);
+    expect(schema).toMatch(/@@index\(\[shopId, routePlanId, deliveryStopId, uploadedAt\]/);
     expect(schema).toMatch(/@@unique\(\[driverId, clientEventId\]/);
   });
 

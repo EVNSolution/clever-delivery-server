@@ -1,4 +1,5 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { MultipartFile, MultipartValue } from '@fastify/multipart';
 
 import { signDriverToken, verifyDriverToken } from '../modules/driver/driver-token-verifier.js';
 import type { DriverAssignedRouteServiceContract } from '../modules/driver/driver-assigned-route.types.js';
@@ -12,6 +13,12 @@ import type {
   DriverRouteAccessLookupResult,
   DriverRouteAccessServiceContract
 } from '../modules/driver/driver-route-access.types.js';
+import { DriverProofMediaScopeError } from '../modules/driver/driver-proof-media.types.js';
+import type {
+  DriverProofMediaServiceContract,
+  DriverProofMediaSource,
+  StoreDriverProofMediaInput
+} from '../modules/driver/driver-proof-media.types.js';
 
 export type DriverApiDependencies = {
   driverAssignedRouteService?: DriverAssignedRouteServiceContract;
@@ -31,6 +38,7 @@ export type DriverApiDependencies = {
     }): Promise<{ duplicate: boolean; eventId: string }>;
   };
   jwtSecret: string;
+  proofMediaService?: DriverProofMediaServiceContract;
   now?: () => Date;
   routeAccessService?: DriverRouteAccessServiceContract;
 };
@@ -180,6 +188,54 @@ export function registerDriverEventRoutes(
         data: result,
         error: null
       });
+    });
+  }
+
+
+  const proofMediaService = dependencies.proofMediaService;
+  if (proofMediaService !== undefined) {
+    app.post('/driver/proof-media', async (request, reply) => {
+      const token = extractBearerToken(request.headers.authorization);
+      if (token === null) {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', 'Missing driver bearer token'));
+      }
+
+      let driverContext: { driverId: string; shopDomain: string };
+      try {
+        const now = dependencies.now?.();
+        driverContext = verifyDriverToken(
+          token,
+          now === undefined ? { secret: dependencies.jwtSecret } : { now, secret: dependencies.jwtSecret }
+        );
+      } catch {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', 'Invalid driver bearer token'));
+      }
+
+      let uploadInput: Omit<StoreDriverProofMediaInput, 'driverId' | 'shopDomain'>;
+      try {
+        uploadInput = await readDriverProofMediaUpload(request);
+      } catch {
+        return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid proof media upload payload'));
+      }
+
+      try {
+        const result = await proofMediaService.storeProofMedia({
+          ...uploadInput,
+          driverId: driverContext.driverId,
+          shopDomain: driverContext.shopDomain
+        });
+
+        return reply.code(201).send({
+          data: result,
+          error: null
+        });
+      } catch (error) {
+        if (isProofMediaScopeError(error)) {
+          return reply.code(403).send(errorResponse('FORBIDDEN', 'Proof media route scope rejected'));
+        }
+
+        throw error;
+      }
     });
   }
 
@@ -347,6 +403,88 @@ function readDriverEventBody(body: DriverEventRequestBody): {
     occurredAt: readRequiredDate(body.occurredAt),
     routePlanId: readOptionalString(body.routePlanId)
   };
+}
+
+
+async function readDriverProofMediaUpload(
+  request: FastifyRequest
+): Promise<Omit<StoreDriverProofMediaInput, 'driverId' | 'shopDomain'>> {
+  if (!request.isMultipart()) {
+    throw new Error('Proof media upload must be multipart');
+  }
+
+  const file = await request.file({
+    limits: {
+      fields: 3,
+      fileSize: 10 * 1024 * 1024,
+      files: 1,
+      parts: 4
+    }
+  });
+
+  if (file === undefined || file.fieldname !== 'file') {
+    throw new Error('Proof media file is required');
+  }
+
+  const deliveryStopId = readMultipartField(file, 'deliveryStopId');
+  const routePlanId = readMultipartField(file, 'routePlanId');
+  const source = readProofMediaSource(readMultipartField(file, 'source'));
+  const fileBytes = await file.toBuffer();
+  if (fileBytes.byteLength === 0) {
+    throw new Error('Proof media file is empty');
+  }
+
+  const contentType = readProofMediaContentType(file.mimetype);
+
+  return {
+    contentType,
+    deliveryStopId,
+    fileBytes,
+    filename: readRequiredString(file.filename),
+    routePlanId,
+    source
+  };
+}
+
+function readMultipartField(file: MultipartFile, fieldName: string): string {
+  const field = file.fields[fieldName];
+  const value = Array.isArray(field) ? field[0] : field;
+  if (value === undefined || value.type !== 'field') {
+    throw new Error(`Multipart field missing: ${fieldName}`);
+  }
+
+  return readMultipartFieldValue(value);
+}
+
+function readMultipartFieldValue(field: MultipartValue): string {
+  if (typeof field.value !== 'string') {
+    throw new Error('Multipart field value must be a string');
+  }
+
+  return readRequiredString(field.value);
+}
+
+
+function readProofMediaContentType(value: unknown): string {
+  const contentType = readRequiredString(value).toLowerCase();
+  if (!contentType.startsWith('image/')) {
+    throw new Error('Proof media file must be an image');
+  }
+
+  return contentType;
+}
+
+function readProofMediaSource(value: string): DriverProofMediaSource {
+  if (value === 'camera' || value === 'library') {
+    return value;
+  }
+
+  throw new Error('Invalid proof media source');
+}
+
+
+function isProofMediaScopeError(error: unknown): boolean {
+  return error instanceof DriverProofMediaScopeError;
 }
 
 function extractBearerToken(authorization: string | undefined): string | null {
