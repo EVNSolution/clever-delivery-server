@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, test, vi } from 'vitest';
 
-import { PrismaDriverProofMediaRepository } from '../src/modules/driver/driver-proof-media.repository.js';
+import {
+  PrismaDriverProofMediaRepository,
+  type DriverProofMediaStorageBackend
+} from '../src/modules/driver/driver-proof-media.repository.js';
 
 const uploadBytes = Buffer.from('synthetic-proof-photo');
 const now = new Date('2026-05-12T10:00:00.000Z');
@@ -130,6 +133,42 @@ describe('PrismaDriverProofMediaRepository', () => {
     }));
     expect(sanitizedBytes.includes(Buffer.from('Exif'))).toBe(false);
     expect(fileBytes.includes(Buffer.from('Exif'))).toBe(true);
+  });
+
+  test('writes sanitized proof media through an injected storage backend', async () => {
+    const writes: { fileBytes: Buffer; storageKey: string }[] = [];
+    const storage: DriverProofMediaStorageBackend = {
+      remove: () => Promise.resolve('removed'),
+      write: (input) => {
+        writes.push(input);
+        return Promise.resolve();
+      }
+    };
+    const { prisma } = createPrismaHarness();
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, {
+      createMediaId: () => '11111111-1111-4111-8111-111111111111',
+      now: () => now,
+      storage
+    });
+    const sanitizedBytes = jpegWithoutExifBytes();
+
+    await repository.storeProofMedia({
+      contentType: 'image/jpeg',
+      deliveryStopId: 'stop-id',
+      driverId: 'driver-id',
+      fileBytes: jpegWithExifBytes(),
+      filename: 'proof-with-exif.jpg',
+      routePlanId: 'route-plan-id',
+      shopDomain: 'tomatono.myshopify.com',
+      source: 'camera'
+    });
+
+    expect(writes).toEqual([
+      {
+        fileBytes: sanitizedBytes,
+        storageKey: 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg'
+      }
+    ]);
   });
 
   test('keeps JPEG proof media without EXIF metadata unchanged', async () => {
@@ -265,6 +304,45 @@ describe('PrismaDriverProofMediaRepository', () => {
       uploadedBefore: new Date('2026-06-01T00:00:00.000Z')
     });
 
+    expect(prisma.driverProofMedia.update).toHaveBeenCalledWith({
+      data: { deletedAt },
+      where: { id: 'missing-media-id' }
+    });
+    expect(result).toEqual({
+      deleted: 1,
+      missingFiles: 1,
+      scanned: 1
+    });
+  });
+
+  test('removes expired proof media through an injected storage backend', async () => {
+    const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/missing-media-id.jpg';
+    const removedKeys: string[] = [];
+    const storage: DriverProofMediaStorageBackend = {
+      remove: (key) => {
+        removedKeys.push(key);
+        return Promise.resolve('missing');
+      },
+      write: () => Promise.resolve()
+    };
+    const deletedAt = new Date('2026-06-12T00:00:00.000Z');
+    const { prisma } = createPrismaHarness({
+      expiredProofMedia: [
+        {
+          id: 'missing-media-id',
+          storageKey,
+          uploadedAt: new Date('2026-05-12T10:00:00.000Z')
+        }
+      ]
+    });
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, { storage });
+
+    const result = await repository.deleteExpiredProofMedia({
+      deletedAt,
+      uploadedBefore: new Date('2026-06-01T00:00:00.000Z')
+    });
+
+    expect(removedKeys).toEqual([storageKey]);
     expect(prisma.driverProofMedia.update).toHaveBeenCalledWith({
       data: { deletedAt },
       where: { id: 'missing-media-id' }

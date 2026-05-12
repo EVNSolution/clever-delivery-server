@@ -17,10 +17,21 @@ type DriverProofMediaPrismaClient = Pick<
 
 type PrismaProofMediaSource = 'CAMERA' | 'LIBRARY';
 
+export type DriverProofMediaStorageWriteInput = {
+  fileBytes: Buffer;
+  storageKey: string;
+};
+
+export type DriverProofMediaStorageBackend = {
+  remove(storageKey: string): Promise<'missing' | 'removed'>;
+  write(input: DriverProofMediaStorageWriteInput): Promise<void>;
+};
+
 type DriverProofMediaRepositoryOptions = {
   createMediaId?: () => string;
   now?: () => Date;
-  storageRoot: string;
+  storage?: DriverProofMediaStorageBackend;
+  storageRoot?: string;
 };
 
 export type DeleteExpiredProofMediaInput = {
@@ -38,13 +49,15 @@ export type DeleteExpiredProofMediaResult = {
 export class PrismaDriverProofMediaRepository {
   private readonly createMediaId: () => string;
   private readonly now: () => Date;
+  private readonly storage: DriverProofMediaStorageBackend;
 
   constructor(
     private readonly prisma: DriverProofMediaPrismaClient,
-    private readonly options: DriverProofMediaRepositoryOptions
+    options: DriverProofMediaRepositoryOptions
   ) {
     this.createMediaId = options.createMediaId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+    this.storage = options.storage ?? createLocalDriverProofMediaStorage(requireStorageRoot(options.storageRoot));
   }
 
   async storeProofMedia(input: StoreDriverProofMediaInput): Promise<StoreDriverProofMediaResult> {
@@ -94,7 +107,7 @@ export class PrismaDriverProofMediaRepository {
       routePlanId: input.routePlanId,
       shopDomain
     });
-    await writeStoredFile(this.options.storageRoot, storageKey, storedFileBytes);
+    await this.storage.write({ fileBytes: storedFileBytes, storageKey });
 
     await this.prisma.driverProofMedia.create({
       data: {
@@ -141,7 +154,7 @@ export class PrismaDriverProofMediaRepository {
     let missingFiles = 0;
 
     for (const media of expiredMedia) {
-      const removeResult = await removeStoredFile(this.options.storageRoot, media.storageKey);
+      const removeResult = await this.storage.remove(media.storageKey);
       if (removeResult === 'missing') {
         missingFiles += 1;
       }
@@ -159,6 +172,13 @@ export class PrismaDriverProofMediaRepository {
       scanned: expiredMedia.length
     };
   }
+}
+
+function createLocalDriverProofMediaStorage(storageRoot: string): DriverProofMediaStorageBackend {
+  return {
+    remove: async (storageKey) => removeStoredFile(storageRoot, storageKey),
+    write: async ({ fileBytes, storageKey }) => writeStoredFile(storageRoot, storageKey, fileBytes)
+  };
 }
 
 async function writeStoredFile(storageRoot: string, storageKey: string, fileBytes: Buffer): Promise<void> {
@@ -190,6 +210,14 @@ function resolveStoredFilePath(storageRoot: string, storageKey: string): string 
   }
 
   throw new Error('Proof media storage key escapes storage root');
+}
+
+function requireStorageRoot(storageRoot: string | undefined): string {
+  if (storageRoot === undefined || storageRoot.trim() === '') {
+    throw new Error('Driver proof media storage requires storageRoot or storage backend');
+  }
+
+  return storageRoot;
 }
 
 function buildStorageKey(input: {
