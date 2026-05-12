@@ -112,6 +112,21 @@ export type RoutePlanRouteGeometry = {
   type: 'LineString';
 };
 
+export type RoutePlanRouteStopPoint = {
+  deliveryStopId: string;
+  inputCoordinates: [number, number] | null;
+  name: string | null;
+  sequence: number;
+  shopifyOrderGid: string;
+  snapDistanceMeters: number | null;
+  snappedCoordinates: [number, number] | null;
+};
+
+export type RoutePlanRouteResult = {
+  routeGeometry: RoutePlanRouteGeometry | null;
+  routeStopPoints: RoutePlanRouteStopPoint[];
+};
+
 export type UpdateRoutePlanStopsPayload = {
   stops: Array<{
     deliveryStopId?: string | null | undefined;
@@ -129,6 +144,7 @@ export type UpdateRoutePlanStopsInput = {
 export type RoutePlanDetail = {
   routePlan: RoutePlanSummary;
   routeGeometry: RoutePlanRouteGeometry | null;
+  routeStopPoints: RoutePlanRouteStopPoint[];
   stops: RoutePlanDetailStop[];
 };
 
