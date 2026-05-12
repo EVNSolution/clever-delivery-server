@@ -16,7 +16,7 @@ describe('loadDriverApiDependencies', () => {
     expect(dependencies).toBeUndefined();
   });
 
-  test('wires proof media storage from runtime env with the driver API', () => {
+  test('keeps local proof media storage as the default runtime backend', () => {
     const dependencies = loadDriverApiDependencies({
       env: {
         DRIVER_PROOF_MEDIA_STORAGE_DIR: '/tmp/clever-proof-media',
@@ -26,6 +26,42 @@ describe('loadDriverApiDependencies', () => {
     });
 
     expect(dependencies?.proofMediaService).toBeDefined();
+  });
+
+  test('wires S3 proof media storage when explicitly configured', () => {
+    const dependencies = loadDriverApiDependencies({
+      env: {
+        DRIVER_PROOF_MEDIA_S3_ACCESS_KEY_ID: 'AKIA_TEST',
+        DRIVER_PROOF_MEDIA_S3_BUCKET: 'clever-proof-media',
+        DRIVER_PROOF_MEDIA_S3_REGION: 'ap-northeast-2',
+        DRIVER_PROOF_MEDIA_S3_SECRET_ACCESS_KEY: 'secret-test-key',
+        DRIVER_PROOF_MEDIA_STORAGE_BACKEND: 's3',
+        JWT_SECRET: 'driver-secret'
+      },
+      prisma: {} as PrismaClient
+    });
+
+    expect(dependencies?.proofMediaService).toBeDefined();
+  });
+
+  test('rejects incomplete S3 proof media storage configuration', () => {
+    expect(() => loadDriverApiDependencies({
+      env: {
+        DRIVER_PROOF_MEDIA_STORAGE_BACKEND: 's3',
+        JWT_SECRET: 'driver-secret'
+      },
+      prisma: {} as PrismaClient
+    })).toThrow('DRIVER_PROOF_MEDIA_S3_BUCKET is required when DRIVER_PROOF_MEDIA_STORAGE_BACKEND=s3');
+  });
+
+  test('rejects unknown proof media storage backends', () => {
+    expect(() => loadDriverApiDependencies({
+      env: {
+        DRIVER_PROOF_MEDIA_STORAGE_BACKEND: 'ftp',
+        JWT_SECRET: 'driver-secret'
+      },
+      prisma: {} as PrismaClient
+    })).toThrow('DRIVER_PROOF_MEDIA_STORAGE_BACKEND must be local or s3');
   });
 
   test('loads proof media retention policy from runtime env with a default', () => {

@@ -6,11 +6,16 @@ This endpoint is a binary upload companion to `POST /driver/events`. The driver 
 
 ## Runtime registration
 
-The route is registered with the Driver API runtime when `JWT_SECRET` is configured. Runtime dependencies include `DRIVER_PROOF_MEDIA_STORAGE_DIR`, which defaults to `var/driver-proof-media` when unset. That default local path is ignored by git and is suitable for local/dev smoke only.
+The route is registered with the Driver API runtime when `JWT_SECRET` is configured. Runtime dependencies include `DRIVER_PROOF_MEDIA_STORAGE_BACKEND`, which defaults to local filesystem storage when unset, and `DRIVER_PROOF_MEDIA_STORAGE_DIR`, which defaults to `var/driver-proof-media` for local mode. That default local path is ignored by git and is suitable for local/dev smoke only.
 
-The repository writes, removes, and optionally creates read access through a `DriverProofMediaStorageBackend` contract. The current runtime wires the local filesystem backend for write/remove only, while a production deployment can replace that backend with object storage without changing route scope checks, metadata persistence, EXIF stripping, scan-hook placement, signed-read orchestration, or retention cleanup orchestration.
+The repository writes, removes, and optionally creates read access through a `DriverProofMediaStorageBackend` contract. Runtime storage is selected by `DRIVER_PROOF_MEDIA_STORAGE_BACKEND`:
 
-`DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defines the short-lived signed/read access lifetime and defaults to 300 seconds. `DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, concrete signed URL backend wiring, scanner integration/deployment evidence, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
+- unset or `local`: local filesystem write/remove under `DRIVER_PROOF_MEDIA_STORAGE_DIR`; suitable for local/dev smoke only and does not expose file URLs
+- `s3`: S3-compatible object storage with SigV4 header authentication for upload/delete and SigV4 presigned GET URLs for short-lived read access
+
+S3 mode requires `DRIVER_PROOF_MEDIA_S3_BUCKET`, `DRIVER_PROOF_MEDIA_S3_REGION`, `DRIVER_PROOF_MEDIA_S3_ACCESS_KEY_ID`, and `DRIVER_PROOF_MEDIA_S3_SECRET_ACCESS_KEY`. `DRIVER_PROOF_MEDIA_S3_ENDPOINT`, `DRIVER_PROOF_MEDIA_S3_FORCE_PATH_STYLE`, and `DRIVER_PROOF_MEDIA_S3_SESSION_TOKEN` are optional for S3-compatible providers, path-style endpoints, and temporary credentials. Keep these values in the runtime secret store, not git. The implementation follows AWS Signature Version 4 canonical request and presigned URL rules and uses a source-controlled test vector from the AWS S3 API reference.
+
+`DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defines the short-lived signed/read access lifetime and defaults to 300 seconds. In S3 mode, the presigned URL lifetime must be within the SigV4 maximum of seven days. `DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership/IAM policy approval, scanner integration/deployment evidence, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
 
 JPEG uploads are sanitized before byte persistence: valid EXIF APP1 segments are removed, and returned/stored `sha256` plus `sizeBytes` describe the sanitized bytes. If a `DriverProofMediaScanner` is configured, the scanner receives the sanitized bytes, content type, storage key, and sanitized SHA-256 before any byte write or metadata create. If a `DriverProofMediaScanMonitor` is configured, it receives scanner outcome metadata (`clean` or `rejected`), media id, storage key, sanitized SHA-256, content type, scan timestamp, and private rejection reason when applicable; it never receives proof file bytes. A rejected scan aborts persistence and maps to `422 PROOF_MEDIA_REJECTED`. This reduces accidental location/device metadata retention and provides server-side scanner and monitoring integration points, but it is not proof that a production malware scanner, signed access, monitoring backend, or private object storage control is deployed.
 
@@ -62,7 +67,7 @@ Missing or invalid bearer tokens return `401`. Invalid media ids return `400`. A
 }
 ```
 
-The default local filesystem backend intentionally does not create public file URLs. Production must wire an object-storage backend that implements `createReadAccess()` and keeps signing credentials outside git.
+The default local filesystem backend intentionally does not create public file URLs. S3 mode implements `createReadAccess()` with presigned URLs and keeps signing credentials outside git through runtime environment variables.
 
 ## POST `/driver/proof-media`
 
@@ -167,8 +172,8 @@ The repository checks all of the following before writing bytes or metadata:
 - Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
 - The cleanup monitor hook records cleanup run counts and cutoffs in `RetentionJobRun` without media ids, storage keys, coordinates, customer data, or proof bytes.
 - Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
-- `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled cleanup. The default runtime backend is local filesystem storage.
-- Object storage backend wiring, production signed URL credentials/evidence, production virus/malware scanner deployment evidence, production scanner monitoring/alerting backend evidence, deployed cleanup scheduler evidence, and private evidence storage remain follow-up hardening items.
+- `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled cleanup. The default runtime backend is local filesystem storage; production can select the S3-compatible backend with runtime env.
+- Production bucket/IAM ownership approval, signed URL credential custody/evidence, production virus/malware scanner deployment evidence, production scanner monitoring/alerting backend evidence, deployed cleanup scheduler evidence, and private evidence storage remain follow-up hardening items.
 
 ## Adjacent APIs
 

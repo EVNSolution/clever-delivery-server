@@ -137,7 +137,7 @@ The codebase can support technical controls, but the service plan also needs man
 ## Known current gaps
 
 - `DriverConsentRecord` exists for notice acceptance evidence and `DriverProofMedia` exists for scoped proof upload metadata; no dedicated `LocationAccessLog` / `LocationUsageRecord` / `LocationPermissionAudit` models yet.
-- Proof-media read access is scoped through the bearer-token shop/driver boundary and a short-lived storage backend read-access contract; the default local backend does not expose public file URLs, and production object-storage backend wiring/evidence remains open.
+- Proof-media read access is scoped through the bearer-token shop/driver boundary and a short-lived storage backend read-access contract; the default local backend does not expose public file URLs, while the S3-compatible backend can issue SigV4 presigned read URLs when explicitly configured. Production bucket/IAM approval and signed-access evidence remain open.
 - Proof-media retention cleanup support exists for local stored bytes and `deletedAt` metadata marking through the driver proof-media repository. `npm run driver:proof-media:cleanup` is available for manual or cron-style execution and persists a sanitized `RetentionJobRun` row for private scheduler evidence; no deployed scheduler evidence exists yet.
 - Proof-media scanner rejection and scan-outcome monitor hooks exist before byte/metadata persistence, but production scanner backend selection, monitor/alert backend wiring, deployment evidence, and monitoring/alerting evidence are not complete yet.
 - No 5-year access-right grant/change/revoke audit table yet.

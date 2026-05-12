@@ -250,7 +250,7 @@ GET /driver/proof-media/:mediaId/access
 Authorization: Bearer <server-issued driver JWT>
 ```
 
-The read-access route verifies the bearer token, scopes the media row to token shop + driver, requires `deletedAt: null`, and then asks the storage backend for a short-lived URL. `DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defaults to 300 seconds. The default backend writes/removes local files under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`) but intentionally does not expose public file URLs; production object storage must implement `createReadAccess()` before this endpoint can return signed URLs. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; the cleanup command now persists a sanitized `RetentionJobRun` evidence row. Production object storage ownership, scanner backend wiring/deployment evidence, scanner monitoring backend wiring/evidence, deployed scheduler evidence, and private evidence storage remain hardening work.
+The read-access route verifies the bearer token, scopes the media row to token shop + driver, requires `deletedAt: null`, and then asks the storage backend for a short-lived URL. `DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defaults to 300 seconds. The default backend writes/removes local files under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`) but intentionally does not expose public file URLs. Set `DRIVER_PROOF_MEDIA_STORAGE_BACKEND=s3` with `DRIVER_PROOF_MEDIA_S3_BUCKET`, `DRIVER_PROOF_MEDIA_S3_REGION`, `DRIVER_PROOF_MEDIA_S3_ACCESS_KEY_ID`, and `DRIVER_PROOF_MEDIA_S3_SECRET_ACCESS_KEY` to use S3-compatible object storage with SigV4 upload/delete signing and presigned read URLs; optional `DRIVER_PROOF_MEDIA_S3_ENDPOINT`, `DRIVER_PROOF_MEDIA_S3_FORCE_PATH_STYLE`, and `DRIVER_PROOF_MEDIA_S3_SESSION_TOKEN` support compatible providers and temporary credentials. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired bytes through the configured backend and mark metadata with `deletedAt`; the cleanup command now persists a sanitized `RetentionJobRun` evidence row. Production bucket/IAM ownership approval, scanner backend wiring/deployment evidence, scanner monitoring backend wiring/evidence, deployed scheduler evidence, and private evidence storage remain hardening work.
 
 Manual or cron-style cleanup command:
 
@@ -284,7 +284,7 @@ Content-Type: application/json
 
 The route is registered when `JWT_SECRET` is configured. It verifies HS256 bearer tokens with audience `clever-delivery-driver`, extracts driver/shop context, validates event payloads, and records driver events idempotently by `(driverId, clientEventId)`.
 
-Driver login/session issuance, production proof-media object storage/access/scanner deployment and scheduled deployment evidence, stop action status mutation semantics, and dedicated location access/usage ledgers are still follow-up work.
+Driver login/session issuance, production proof-media bucket/IAM approval/scanner deployment/scheduled deployment evidence, stop action status mutation semantics, and dedicated location access/usage ledgers are still follow-up work.
 
 ## Project references
 
