@@ -18,9 +18,9 @@ This repository currently contains the basic Node.js/TypeScript API scaffold plu
 - Shopify session-token verifier, token-exchange client, API route, and env-driven runtime wiring
 - Shopify HTTPS webhook HMAC verifier, receive route, and idempotent receipt-storage contract
 - Shopify Admin GraphQL client plus order-sync query/mapper/service foundation
-- Driver API bearer-token verifier, route+phone access lookup, consent persistence, assigned route read, proof-media upload metadata/storage, and idempotent driver-event ingest route
+- Driver API bearer-token verifier, route+phone access lookup, consent persistence, assigned route read, proof-media upload metadata/storage/scan hook, and idempotent driver-event ingest route
 
-Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/session issuance APIs, stop-detail/action APIs, production object-store/retention hardening for proof media, dedicated location access/usage logging, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/session issuance APIs, stop-detail/action APIs, production object-store/retention/scanner deployment hardening for proof media, dedicated location access/usage logging, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
@@ -241,7 +241,7 @@ Authorization: Bearer <server-issued driver JWT>
 Content-Type: multipart/form-data
 ```
 
-Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, strips JPEG EXIF APP1 metadata before persistence, writes bytes through the proof-media storage backend, and stores `DriverProofMedia` metadata with `storageKey`, sanitized `sizeBytes`, and sanitized `sha256`. The default backend writes under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`). Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage, signed retrieval/access, and malware scanning remain hardening work.
+Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, strips JPEG EXIF APP1 metadata before persistence, runs an optional `DriverProofMediaScanner` hook on sanitized bytes before storage, writes accepted bytes through the proof-media storage backend, and stores `DriverProofMedia` metadata with `storageKey`, sanitized `sizeBytes`, and sanitized `sha256`. Scanner rejections return `422 PROOF_MEDIA_REJECTED` without storing bytes or metadata. The default backend writes under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`). Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage, signed retrieval/access, scanner integration evidence, and private evidence storage remain hardening work.
 
 Manual or cron-style cleanup command:
 
@@ -275,7 +275,7 @@ Content-Type: application/json
 
 The route is registered when `JWT_SECRET` is configured. It verifies HS256 bearer tokens with audience `clever-delivery-driver`, extracts driver/shop context, validates event payloads, and records driver events idempotently by `(driverId, clientEventId)`.
 
-Driver login/session issuance, production proof-media object storage/access/scanning and scheduled deployment evidence, stop action status mutation semantics, and dedicated location access/usage ledgers are still follow-up work.
+Driver login/session issuance, production proof-media object storage/access/scanner deployment and scheduled deployment evidence, stop action status mutation semantics, and dedicated location access/usage ledgers are still follow-up work.
 
 ## Project references
 

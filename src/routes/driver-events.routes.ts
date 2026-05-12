@@ -13,7 +13,10 @@ import type {
   DriverRouteAccessLookupResult,
   DriverRouteAccessServiceContract
 } from '../modules/driver/driver-route-access.types.js';
-import { DriverProofMediaScopeError } from '../modules/driver/driver-proof-media.types.js';
+import {
+  DriverProofMediaScanRejectedError,
+  DriverProofMediaScopeError
+} from '../modules/driver/driver-proof-media.types.js';
 import type {
   DriverProofMediaServiceContract,
   DriverProofMediaSource,
@@ -232,6 +235,11 @@ export function registerDriverEventRoutes(
       } catch (error) {
         if (isProofMediaScopeError(error)) {
           return reply.code(403).send(errorResponse('FORBIDDEN', 'Proof media route scope rejected'));
+        }
+        if (isProofMediaScanRejectedError(error)) {
+          return reply
+            .code(422)
+            .send(errorResponse('PROOF_MEDIA_REJECTED', 'Proof media rejected by safety scan'));
         }
 
         throw error;
@@ -485,6 +493,10 @@ function readProofMediaSource(value: string): DriverProofMediaSource {
 
 function isProofMediaScopeError(error: unknown): boolean {
   return error instanceof DriverProofMediaScopeError;
+}
+
+function isProofMediaScanRejectedError(error: unknown): boolean {
+  return error instanceof DriverProofMediaScanRejectedError;
 }
 
 function extractBearerToken(authorization: string | undefined): string | null {

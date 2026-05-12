@@ -57,7 +57,7 @@ Engineering classification rule:
 | `POST /driver/consents` consent record write | No | Not normally usage | Consent acceptance evidence only; do not store coordinates/customer data in optional app/device/route context. |
 | `GET /driver/assigned-route` | Yes | `PROVIDE` by engineering default | Enforces bearer-token shop/driver boundary before returning stop address/location context; dedicated access/usage log persistence remains follow-up. |
 | Driver stop detail read, once implemented | Yes | `PROVIDE` by engineering default | Must block other drivers with 403 and log denied access without coordinates. |
-| `POST /driver/proof-media` | Yes | Not normally location usage unless image metadata/location is stored | Stores proof photo metadata and file bytes under driver/shop/route/stop scope; JPEG EXIF APP1 metadata is stripped before storage to reduce accidental image location/device metadata retention. |
+| `POST /driver/proof-media` | Yes | Not normally location usage unless image metadata/location is stored | Stores proof photo metadata and file bytes under driver/shop/route/stop scope; JPEG EXIF APP1 metadata is stripped before storage and any configured scanner sees sanitized bytes before persistence to reduce accidental image location/device metadata retention and block rejected media. |
 | `POST /driver/events` with `LOCATION_UPDATED` | Yes | `COLLECT` | Driver GPS collection. |
 | Retention cleanup execution | Yes | `INTERNAL_LIFECYCLE` via `RetentionJobRun` | Record deleted/anonymized counts and job id. |
 | rawPayload sanitizer/backfill execution | Yes | `INTERNAL_LIFECYCLE` via `RetentionJobRun` | Record dry-run/apply counts and evidence artifact path. |
@@ -76,7 +76,7 @@ Retention days are maximum engineering defaults, not guaranteed holding periods.
 | `LocationUsageRecord` | 215 days | Location collection/use/provision confirmation data should be available for at least 6 months plus buffer. | Delete after retention unless legal/incident hold is active. |
 | `DriverEvent` with `LOCATION_UPDATED` and raw coordinates | 90 days after occurrence | High-volume live driver GPS is rarely needed after delivery operations settle. | Null `latitude`, `longitude`, and coordinate fields inside `payload`; keep non-location event metadata if still operationally useful. |
 | Other `DriverEvent` rows tied to proof of delivery/failure | 180 days after occurrence | Needed for customer support and delivery dispute handling. | Remove embedded coordinate fields from `payload` after 90 days; keep event type/timestamps longer if needed. |
-| `DriverProofMedia` rows and stored proof files | 180 days after occurrence/upload by default | Needed for customer support and delivery dispute handling. | Delete stored file bytes through the configured proof-media storage backend and mark/delete metadata after retention unless legal/incident hold exists; stored JPEG bytes have EXIF APP1 metadata stripped before hash/size recording. |
+| `DriverProofMedia` rows and stored proof files | 180 days after occurrence/upload by default | Needed for customer support and delivery dispute handling. | Delete stored file bytes through the configured proof-media storage backend and mark/delete metadata after retention unless legal/incident hold exists; stored JPEG bytes have EXIF APP1 metadata stripped before hash/size recording and accepted media can pass through a scanner hook before persistence. |
 | `DeliveryStop.latitude/longitude` | 180 days after `deliveryDate` by default | Needed for active routing, route review, and short-term support. | Null coordinates and mark retained address data separately if order history must remain. |
 | `Order.rawPayload` location/customer extras | Sanitize at write time and backfill existing rows | Raw source snapshots duplicate sensitive values and are hard to govern. | Store only normalized operational fields; omit email and raw latitude/longitude. |
 | PostgreSQL backups | 35 days rolling, unless incident hold | Backups can contain location and customer data. | Encrypt at rest; expire backup files; document restore access. |
@@ -137,6 +137,7 @@ The codebase can support technical controls, but the service plan also needs man
 
 - `DriverConsentRecord` exists for notice acceptance evidence and `DriverProofMedia` exists for scoped proof upload metadata; no dedicated `LocationAccessLog` / `LocationUsageRecord` / `LocationPermissionAudit` models yet.
 - Proof-media retention cleanup support exists for local stored bytes and `deletedAt` metadata marking through the driver proof-media repository, with `npm run driver:proof-media:cleanup` available for manual or cron-style execution; no deployed scheduler or `RetentionJobRun` persistence exists yet.
+- Proof-media scanner rejection hook exists before byte/metadata persistence, but production scanner backend selection, deployment evidence, and monitoring/alerting evidence are not complete yet.
 - No 5-year access-right grant/change/revoke audit table yet.
 - Raw payloads can still duplicate coordinates from Shopify/app snapshots.
 - Existing `Order.rawPayload` rows require a backfill sanitizer pass.
