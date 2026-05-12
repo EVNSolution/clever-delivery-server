@@ -250,7 +250,7 @@ GET /driver/proof-media/:mediaId/access
 Authorization: Bearer <server-issued driver JWT>
 ```
 
-The read-access route verifies the bearer token, scopes the media row to token shop + driver, requires `deletedAt: null`, and then asks the storage backend for a short-lived URL. `DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defaults to 300 seconds. The default backend writes/removes local files under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`) but intentionally does not expose public file URLs; production object storage must implement `createReadAccess()` before this endpoint can return signed URLs. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage ownership, scanner backend wiring/deployment evidence, scanner monitoring backend wiring/evidence, and private evidence storage remain hardening work.
+The read-access route verifies the bearer token, scopes the media row to token shop + driver, requires `deletedAt: null`, and then asks the storage backend for a short-lived URL. `DRIVER_PROOF_MEDIA_READ_ACCESS_TTL_SECONDS` defaults to 300 seconds. The default backend writes/removes local files under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`) but intentionally does not expose public file URLs; production object storage must implement `createReadAccess()` before this endpoint can return signed URLs. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; the cleanup command now persists a sanitized `RetentionJobRun` evidence row. Production object storage ownership, scanner backend wiring/deployment evidence, scanner monitoring backend wiring/evidence, deployed scheduler evidence, and private evidence storage remain hardening work.
 
 Manual or cron-style cleanup command:
 
@@ -258,7 +258,7 @@ Manual or cron-style cleanup command:
 npm run driver:proof-media:cleanup
 ```
 
-The command prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, and `deletedAt`. `runDriverProofMediaRetentionCleanup()` also accepts an optional cleanup monitor hook so production schedulers can record sanitized run evidence (`scanned`, `deleted`, missing file count, cutoff, run time, retention window, and batch limit) without media ids, storage keys, or proof bytes. Deployed scheduler evidence is still required before release.
+The command prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, `deletedAt`, and `evidenceRecorded`. It wires a cleanup monitor that creates a `RetentionJobRun` row with sanitized counts, cutoff, run time, retention window, batch limit, and optional private `DRIVER_PROOF_MEDIA_CLEANUP_EVIDENCE_REF`. The row intentionally excludes media ids, storage keys, proof bytes, customer data, and coordinates. Deployed scheduler evidence is still required before release.
 
 See `docs/api/driver-proof-media.md` for the request/response contract and production storage/retention caveats.
 

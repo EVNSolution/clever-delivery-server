@@ -125,6 +125,16 @@ Deployment behavior:
 
 The workflow runs automatically after changes merge to `dev`, and can also be run manually with `workflow_dispatch` for a selected ref.
 
+### Proof-media cleanup scheduler evidence
+
+Proof-media retention cleanup can be run manually or by a host scheduler:
+
+```bash
+npm run driver:proof-media:cleanup
+```
+
+The command removes expired proof-media bytes through the configured storage backend, marks deleted metadata, and records a sanitized `RetentionJobRun` row. `DRIVER_PROOF_MEDIA_CLEANUP_EVIDENCE_REF` can point to a private scheduler/log/evidence location; do not store proof images, storage keys, customer data, coordinates, phone numbers, or raw logs in that value. A production release still needs deployed scheduler evidence showing the command runs on the selected environment.
+
 For runtime request inspection without direct SSH, use the **Inspect EC2
 Runtime** workflow. See `docs/deployment/log-inspection.md`.
 

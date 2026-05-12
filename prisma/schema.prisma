@@ -98,6 +98,11 @@ enum DriverProofMediaSource {
   LIBRARY
 }
 
+enum RetentionJobRunStatus {
+  SUCCEEDED
+  FAILED
+}
+
 model Shop {
   id                          String                @id @default(uuid()) @db.Uuid
   shopDomain                  String                @db.Text
@@ -344,6 +349,27 @@ model DriverProofMedia {
   @@index([shopId, routePlanId, deliveryStopId, uploadedAt])
   @@index([driverId, uploadedAt])
   @@map("driver_proof_media")
+}
+
+model RetentionJobRun {
+  id                String                @id @default(uuid()) @db.Uuid
+  jobName           String                @db.Text
+  status            RetentionJobRunStatus
+  startedAt         DateTime              @db.Timestamptz(6)
+  finishedAt        DateTime              @db.Timestamptz(6)
+  retentionDays     Int?
+  uploadedBefore    DateTime?             @db.Timestamptz(6)
+  batchLimit        Int?
+  scannedCount      Int?
+  deletedCount      Int?
+  missingFilesCount Int?
+  errorSummary      String?               @db.Text
+  evidenceRef       String?               @db.Text
+  createdAt         DateTime              @default(now()) @db.Timestamptz(6)
+
+  @@index([jobName, finishedAt])
+  @@index([status, finishedAt])
+  @@map("retention_job_runs")
 }
 
 model Vehicle {
