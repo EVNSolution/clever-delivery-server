@@ -26,6 +26,10 @@ describe('PrismaDriverRouteAccessRepository', () => {
       where: { id: routePlanId }
     });
     expect(result).toEqual({
+      driverContext: {
+        driverId: 'driver-id',
+        shopDomain: 'tomatono.myshopify.com'
+      },
       status: 'INVITED',
       routeAccess: {
         nextState: 'consent_required',

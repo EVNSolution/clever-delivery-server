@@ -179,7 +179,7 @@ Content-Type: application/json
 }
 ```
 
-The route is registered when `JWT_SECRET` is configured with the Driver API runtime. It validates that route context and E.164 phone are present before lookup, then checks the existing shop/route plan/assigned driver boundary. A matched active driver receives only non-sensitive company guidance and `nextState: "consent_required"`. Missing route, phone mismatch, inactive driver, and suspended driver responses do not include stop/customer/location details.
+The route is registered when `JWT_SECRET` is configured with the Driver API runtime. It validates that route context and E.164 phone are present before lookup, then checks the existing shop/route plan/assigned driver boundary. A matched active driver receives non-sensitive company guidance, `nextState: "consent_required"`, and a 900-second `driverAccess` bearer token for consent and assigned-route calls. Missing route, phone mismatch, inactive driver, and suspended driver responses do not include tokens, stop/customer/location details, or driver internals.
 
 See `docs/api/driver-route-access.md` for the response contract and minimization notes.
 

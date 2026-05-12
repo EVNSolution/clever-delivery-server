@@ -1,14 +1,33 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
-import { verifyDriverToken } from '../src/modules/driver/driver-token-verifier.js';
+import { signDriverToken, verifyDriverToken } from '../src/modules/driver/driver-token-verifier.js';
 
 const secret = 'driver-secret';
 const now = new Date('2026-05-07T06:10:00Z');
 
 describe('verifyDriverToken', () => {
+  test('signs a short-lived driver JWT that the verifier accepts', () => {
+    const result = signDriverToken(
+      {
+        driverId: 'driver-id',
+        expiresInSeconds: 900,
+        shopDomain: 'Example.myshopify.com',
+        subject: 'driver:driver-id'
+      },
+      { now, secret }
+    );
+
+    expect(result.expiresAt).toBe('2026-05-07T06:25:00.000Z');
+    expect(verifyDriverToken(result.token, { now, secret })).toEqual({
+      driverId: 'driver-id',
+      shopDomain: 'example.myshopify.com',
+      subject: 'driver:driver-id'
+    });
+  });
+
   test('accepts a server-issued driver JWT and returns driver context', () => {
-    const token = signDriverToken({
+    const token = legacySignDriverToken({
       aud: 'clever-delivery-driver',
       driverId: 'driver-id',
       exp: Math.floor(now.getTime() / 1000) + 60,
@@ -25,7 +44,7 @@ describe('verifyDriverToken', () => {
   });
 
   test('rejects tokens with invalid signatures', () => {
-    const token = `${signDriverToken({
+    const token = `${legacySignDriverToken({
       aud: 'clever-delivery-driver',
       driverId: 'driver-id',
       exp: Math.floor(now.getTime() / 1000) + 60,
@@ -37,7 +56,7 @@ describe('verifyDriverToken', () => {
   });
 });
 
-function signDriverToken(payload: Record<string, unknown>): string {
+function legacySignDriverToken(payload: Record<string, unknown>): string {
   const header = { alg: 'HS256', typ: 'JWT' };
   const encodedHeader = Buffer.from(JSON.stringify(header), 'utf8').toString('base64url');
   const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');

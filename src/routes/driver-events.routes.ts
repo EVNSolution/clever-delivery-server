@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 
-import { verifyDriverToken } from '../modules/driver/driver-token-verifier.js';
+import { signDriverToken, verifyDriverToken } from '../modules/driver/driver-token-verifier.js';
 import type { DriverAssignedRouteServiceContract } from '../modules/driver/driver-assigned-route.types.js';
 import type {
   DriverConsentRecordInput,
@@ -9,6 +9,7 @@ import type {
 } from '../modules/driver/driver-consent.types.js';
 import type {
   DriverRouteAccessLookupInput,
+  DriverRouteAccessLookupResult,
   DriverRouteAccessServiceContract
 } from '../modules/driver/driver-route-access.types.js';
 
@@ -77,6 +78,7 @@ const REQUIRED_DRIVER_CONSENT_TYPES = [
   'PERSONAL_INFORMATION'
 ] as const;
 const REQUIRED_DRIVER_CONSENT_TYPE_SET = new Set<string>(REQUIRED_DRIVER_CONSENT_TYPES);
+const DRIVER_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 
 export function registerDriverEventRoutes(
   app: FastifyInstance,
@@ -96,7 +98,7 @@ export function registerDriverEventRoutes(
 
         const result = await routeAccessService.lookupRouteAccess(lookupInput);
         return reply.code(200).send({
-          data: result,
+          data: buildDriverRouteAccessResponse(result, dependencies),
           error: null
         });
       }
@@ -222,6 +224,39 @@ export function registerDriverEventRoutes(
   });
 }
 
+
+function buildDriverRouteAccessResponse(
+  result: DriverRouteAccessLookupResult,
+  dependencies: DriverApiDependencies
+): unknown {
+  if (result.status !== 'INVITED') {
+    return result;
+  }
+
+  const now = dependencies.now?.();
+  const token = signDriverToken(
+    {
+      driverId: result.driverContext.driverId,
+      expiresInSeconds: DRIVER_ACCESS_TOKEN_TTL_SECONDS,
+      shopDomain: result.driverContext.shopDomain,
+      subject: `driver:${result.driverContext.driverId}`
+    },
+    now === undefined ? { secret: dependencies.jwtSecret } : { now, secret: dependencies.jwtSecret }
+  );
+
+  return {
+    companyGuidance: result.companyGuidance,
+    driverAccess: {
+      accessToken: token.token,
+      expiresAt: token.expiresAt,
+      tokenType: token.tokenType,
+      ttlSeconds: DRIVER_ACCESS_TOKEN_TTL_SECONDS,
+      use: 'consent_and_assigned_route'
+    },
+    routeAccess: result.routeAccess,
+    status: result.status
+  };
+}
 
 function readDriverRouteAccessBody(body: DriverRouteAccessRequestBody): DriverRouteAccessLookupInput {
   const routeContext = readRequiredString(body.routeContext);

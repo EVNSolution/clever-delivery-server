@@ -1,13 +1,34 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
+import { verifyDriverToken } from '../src/modules/driver/driver-token-verifier.js';
 import type { DriverApiDependencies } from '../src/routes/driver-events.routes.js';
 
 type LookupRouteAccess = NonNullable<DriverApiDependencies['routeAccessService']>['lookupRouteAccess'];
 type RecordDriverEvent = DriverApiDependencies['driverEventService']['recordDriverEvent'];
 
+const now = new Date('2026-05-12T06:40:00.000Z');
+
+
+type InvitedLookupResponseBody = {
+  data: typeof invitedLookup & {
+    driverAccess: {
+      accessToken: string;
+      expiresAt: string;
+      tokenType: 'Bearer';
+      ttlSeconds: number;
+      use: 'consent_and_assigned_route';
+    };
+  };
+  error: null;
+};
+
 const invitedLookup = {
   status: 'INVITED' as const,
+  driverContext: {
+    driverId: 'driver-id',
+    shopDomain: 'tomatono.myshopify.com'
+  },
   routeAccess: {
     nextState: 'consent_required' as const,
     routeContext: 'route-plan-id',
@@ -79,10 +100,27 @@ describe('Driver route access lookup route', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({
-        data: invitedLookup,
-        error: null
+      const body = response.json<InvitedLookupResponseBody>();
+      expect(body.data).toMatchObject({
+        companyGuidance: invitedLookup.companyGuidance,
+        routeAccess: invitedLookup.routeAccess,
+        status: 'INVITED'
       });
+      expect(body.data.driverAccess).toMatchObject({
+        expiresAt: '2026-05-12T06:55:00.000Z',
+        tokenType: 'Bearer',
+        ttlSeconds: 900,
+        use: 'consent_and_assigned_route'
+      });
+      expect(verifyDriverToken(body.data.driverAccess.accessToken, {
+        now,
+        secret: 'driver-secret'
+      })).toEqual({
+        driverId: 'driver-id',
+        shopDomain: 'tomatono.myshopify.com',
+        subject: 'driver:driver-id'
+      });
+      expect(JSON.stringify(body)).not.toContain('driverContext');
       expect(lookupRouteAccess).toHaveBeenCalledWith({
         phoneE164: '+14165550123',
         routeContext: 'route-plan-id'
@@ -157,6 +195,7 @@ async function createAppHarness(
         recordDriverEvent
       },
       jwtSecret: 'driver-secret',
+      now: () => now,
       routeAccessService: {
         lookupRouteAccess
       }

@@ -13,6 +13,19 @@ export type VerifyDriverTokenOptions = {
   secret: string;
 };
 
+export type SignDriverTokenInput = {
+  driverId: string;
+  expiresInSeconds: number;
+  shopDomain: string;
+  subject: string;
+};
+
+export type SignDriverTokenResult = {
+  expiresAt: string;
+  token: string;
+  tokenType: 'Bearer';
+};
+
 type DriverTokenHeader = {
   alg?: unknown;
   typ?: unknown;
@@ -71,6 +84,36 @@ export function verifyDriverToken(
   return { driverId, shopDomain, subject };
 }
 
+export function signDriverToken(
+  input: SignDriverTokenInput,
+  options: VerifyDriverTokenOptions
+): SignDriverTokenResult {
+  const now = options.now ?? new Date();
+  const issuedAtSeconds = Math.floor(now.getTime() / 1000);
+  const expiresAtSeconds = issuedAtSeconds + readPositiveTtl(input.expiresInSeconds);
+  const shopDomain = normalizeShopDomain(input.shopDomain);
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const claims = {
+    aud: DRIVER_AUDIENCE,
+    driverId: requireStringClaim(input.driverId, 'driverId'),
+    exp: expiresAtSeconds,
+    iat: issuedAtSeconds,
+    nbf: issuedAtSeconds,
+    shopDomain,
+    sub: requireStringClaim(input.subject, 'sub')
+  };
+  const encodedHeader = Buffer.from(JSON.stringify(header), 'utf8').toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url');
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = createHmac('sha256', options.secret).update(signingInput).digest('base64url');
+
+  return {
+    expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
+    token: `${signingInput}.${signature}`,
+    tokenType: 'Bearer'
+  };
+}
+
 function verifyHeader(encodedHeader: string): void {
   const header = parseHeader(encodedHeader);
   const algorithm = requireStringClaim(header.alg, 'header alg');
@@ -121,6 +164,14 @@ function requireStringClaim(value: unknown, claimName: string): string {
 function requireNumberClaim(value: unknown, claimName: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`Driver token ${claimName} claim is required`);
+  }
+
+  return value;
+}
+
+function readPositiveTtl(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('Driver token TTL must be a positive integer');
   }
 
   return value;

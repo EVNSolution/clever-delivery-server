@@ -53,6 +53,13 @@ Matched active assigned driver response:
       "routePlanId": "11111111-1111-4111-8111-111111111111",
       "nextState": "consent_required"
     },
+    "driverAccess": {
+      "accessToken": "<short-lived-driver-jwt>",
+      "tokenType": "Bearer",
+      "expiresAt": "2026-05-12T06:55:00.000Z",
+      "ttlSeconds": 900,
+      "use": "consent_and_assigned_route"
+    },
     "companyGuidance": {
       "companyDisplayName": "Tomatono Toronto",
       "shopDomain": "tomatono.myshopify.com",
@@ -80,7 +87,9 @@ Safe denial statuses return `200` with no guidance payload:
 
 ## Data minimization
 
-The lookup response must not include delivery stops, customer addresses, coordinates, or order data. It only returns enough non-sensitive context for the driver to confirm the company/shop/route before the consent gate.
+The lookup response must not include delivery stops, customer addresses, coordinates, or order data. It only returns enough non-sensitive context for the driver to confirm the company/shop/route before the consent gate, plus a short-lived bearer token for the matched driver/shop boundary.
+
+`driverAccess.accessToken` is a server-signed HS256 JWT with audience `clever-delivery-driver`. It is scoped to the matched `driverId` and `shopDomain`, expires after 900 seconds, and is intended only for the next driver-app calls such as `POST /driver/consents` and `GET /driver/assigned-route`. Denial responses never include `driverAccess`. OTP/deep-link hardening, refresh sessions, and token rotation remain follow-up security work.
 
 ## Adjacent and follow-up APIs
 
@@ -91,6 +100,5 @@ Implemented adjacent contracts:
 
 Remaining follow-up contracts:
 
-- driver session/access token issuance after route+phone lookup
 - stop detail read and stop action writes with assigned-driver boundary
 - driver event/location update hardening and location usage/access logging
