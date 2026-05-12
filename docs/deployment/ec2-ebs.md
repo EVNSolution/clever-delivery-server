@@ -27,6 +27,21 @@ JWT_SECRET=<driver-api-secret-when-driver-api-exists>
 
 Never commit real `.env` files, Shopify secrets, DB passwords, or token-encryption keys.
 
+Additional runtime groups represented in `.env.example`:
+
+- API process controls: `NODE_ENV`, `PORT`, and `LOG_LEVEL`.
+- Compose/local bind controls: `API_PORT` and `POSTGRES_PORT`.
+- Shopify app integration controls: `SHOPIFY_APP_URL` for CORS and app origin wiring,
+  `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, and `SHOPIFY_API_VERSION` for app auth,
+  plus `SHOPIFY_TOKEN_ENCRYPTION_KEY` for stored Admin API token ciphertext.
+- Local-only Shopify shortcuts, if used, must stay outside production evidence:
+  `SHOPIFY_SHOP_DOMAIN` and `SHOPIFY_ADMIN_ACCESS_TOKEN`.
+- `SHOPIFY_WEBHOOK_SECRET` is reserved in the example env file; the current webhook
+  HMAC verifier is wired from `SHOPIFY_API_SECRET`.
+- Driver API/proof-media controls are documented in the proof-media sections below;
+  none of the S3, scanner, monitor, or cleanup evidence values should be pasted into
+  public issues, PRs, logs, or screenshots.
+
 ## Local compose smoke
 
 ```bash
@@ -137,6 +152,14 @@ Production proof-media storage can be selected with `DRIVER_PROOF_MEDIA_STORAGE_
 Optional values are `DRIVER_PROOF_MEDIA_S3_ENDPOINT`, `DRIVER_PROOF_MEDIA_S3_FORCE_PATH_STYLE`, and `DRIVER_PROOF_MEDIA_S3_SESSION_TOKEN` for S3-compatible providers, path-style endpoints, and temporary credentials. The backend signs PUT/DELETE requests and presigned GET read access with AWS Signature Version 4. Keep credentials in the host/container secret mechanism and record only sanitized bucket/IAM policy evidence in change-control issues.
 
 A production release still needs private evidence for bucket ownership, IAM least-privilege policy, credential rotation/custody, signed URL smoke, malware scanner deployment, scanner alerting, and cleanup scheduler deployment.
+
+### Proof-media HTTP scanner and scan monitor
+
+Production scanner wiring can be selected with `DRIVER_PROOF_MEDIA_SCANNER_BACKEND=http`. Required runtime config is `DRIVER_PROOF_MEDIA_SCANNER_URL`; `DRIVER_PROOF_MEDIA_SCANNER_BEARER_TOKEN` is optional but recommended for private scanner endpoints. The scanner receives sanitized proof bytes after JPEG EXIF stripping and before storage/metadata persistence, plus metadata headers for content type, sanitized SHA-256, and storage key. It must return `{"status":"clean"}` or `{"status":"rejected","reason":"private reason"}`.
+
+Production scan-outcome monitoring can be selected with `DRIVER_PROOF_MEDIA_SCAN_MONITOR_BACKEND=http`. Required runtime config is `DRIVER_PROOF_MEDIA_SCAN_MONITOR_URL`; `DRIVER_PROOF_MEDIA_SCAN_MONITOR_BEARER_TOKEN` is optional but recommended. The monitor receives sanitized JSON with media id, content type, storage key, sanitized SHA-256, scan timestamp, status, and optional private rejection reason. It does not receive proof file bytes.
+
+A production release still needs private evidence for scanner endpoint deployment, endpoint auth/secret custody, clean and rejected scan smoke, alert routing, and incident response ownership.
 
 ### Proof-media cleanup scheduler evidence
 
