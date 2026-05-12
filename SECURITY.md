@@ -35,4 +35,4 @@ Security review for this server includes:
 
 ## Evidence handling
 
-When sharing reproduction evidence, use synthetic shop domains, route contexts, driver phone numbers, customer addresses, coordinates, proof media, and redacted logs. If real production data is unavoidable for diagnosis, coordinate privately and keep the evidence out of git.
+When sharing reproduction evidence, use synthetic shop domains, route contexts, driver phone numbers, customer addresses, coordinates, proof media, and redacted logs. Completed proof-media production evidence manifests belong in the private evidence store and should be validated only through a local working copy with `npm run driver:proof-media:evidence:verify -- <private-manifest-path>`. If real production data is unavoidable for diagnosis, coordinate privately and keep the evidence out of git.

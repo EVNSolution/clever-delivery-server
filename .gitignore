@@ -48,12 +48,15 @@ docs/release-evidence/
 docs/smoke-evidence/
 release-evidence-manifest-*.md
 docs/release-evidence-manifest-*.md
+proof-media-production-evidence-manifest-*.md
+docs/proof-media-production-evidence-manifest-*.md
 
 # Local certificates and secret key material
 *.pem
 *.key
 *.crt
 *.p12
+*.p8
 
 # Package manager caches
 .npm/

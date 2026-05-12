@@ -175,6 +175,16 @@ gates without printing bucket names, endpoints, access keys, bearer tokens, proo
 media, storage keys, database credentials, or completed evidence references. Use
 it as the starting audit record in the private evidence store, then attach the
 real bucket/IAM, signed URL, scanner, alerting, and scheduler evidence there.
+Copy `docs/proof-media-production-evidence-manifest.template.md` into the
+private evidence store, fill it there, and validate a local working copy before
+approval:
+
+```bash
+npm run driver:proof-media:evidence:verify -- /path/to/private/proof-media-production-evidence-manifest-<date>-<sha>.md
+```
+
+The verifier checks for completeness and accidental sensitive/private artifacts;
+it does not replace owner-controlled production evidence review.
 
 Proof-media retention cleanup can be run manually or by a host scheduler:
 

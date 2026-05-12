@@ -41,7 +41,17 @@ remaining private evidence gates, and tracking issues without printing bucket
 names, endpoints, access keys, bearer tokens, storage keys, proof bytes, or
 completed evidence references. Copy the seed into the approved private evidence
 workspace and fill real bucket/IAM, signed URL, scanner, alerting, cleanup
-scheduler, and private evidence-store references there.
+scheduler, and private evidence-store references there. Copy
+`docs/proof-media-production-evidence-manifest.template.md` into that private
+workspace for the release candidate. After filling it, validate a local working
+copy with:
+
+```bash
+npm run driver:proof-media:evidence:verify -- /path/to/private/proof-media-production-evidence-manifest-<date>-<sha>.md
+```
+
+The verifier is a local completeness and leak guard; it does not prove the
+private evidence is authentic or owner-approved.
 
 ## GET `/driver/proof-media/:mediaId/access`
 

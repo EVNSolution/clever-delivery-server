@@ -45,6 +45,16 @@
 
 ## Context/wiki completion
 
+- repo docs checked:
+  - `.gitignore` / `.dockerignore`
+  - `.editorconfig` / `.gitattributes`
+  - `.env.example`
+  - `README.md`
+  - `docs/project-brief.md`
+  - `docs/deployment/ec2-ebs.md`
+  - `docs/api/driver-proof-media.md`
+  - `docs/proof-media-production-evidence-manifest.template.md`
+  - `CONTRIBUTING.md` / `SECURITY.md`
 - context docs checked:
   - `clever-context-monorepo/docs/services/<service>/index.md`
   - `clever-context-monorepo/docs/wiki/`
