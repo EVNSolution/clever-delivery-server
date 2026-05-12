@@ -14,6 +14,16 @@ export type DriverRouteAccessCompanyGuidance = {
   timezone: string | null;
 };
 
+export type DriverRouteAccessAmbiguousMatch = {
+  companyDisplayName: string;
+  deliveryDate: string;
+  operatorSupportContact: string | null;
+  pickupGuidance: string | null;
+  routeName: string;
+  shopDomain: string;
+  timezone: string | null;
+};
+
 export type DriverRouteAccessLookupResult =
   | {
       driverContext: {
@@ -27,6 +37,11 @@ export type DriverRouteAccessLookupResult =
         routePlanId: string;
       };
       companyGuidance: DriverRouteAccessCompanyGuidance;
+    }
+  | {
+      status: 'MULTIPLE_MATCHES';
+      matches: DriverRouteAccessAmbiguousMatch[];
+      resolutionHint: string;
     }
   | { status: 'BLOCKED' | 'DISABLED' | 'NOT_FOUND' };
 

@@ -8,9 +8,20 @@ This is the first driver-facing contract for `clever-driver-app`. It intentional
 
 The route is registered with the existing Driver API runtime dependencies when `JWT_SECRET` is configured. Driver mobile clients still call this server, not Shopify Admin APIs.
 
-## Route context for this slice
+## Route context
 
-MVP `routeContext` is the assigned `RoutePlan.id` UUID. Future issues may replace or wrap it with a signed invite link, route code, or company/route access code. Non-UUID route contexts are treated as `NOT_FOUND` by the Prisma repository so they do not leak lookup details.
+`routeContext` supports two lookup shapes:
+
+- exact route context: an assigned `RoutePlan.id` UUID
+- shared route/company scope: a non-UUID value stored at `RoutePlan.constraints.routeScope.routeScopeKey`
+
+The server always combines `routeContext` with the normalized driver phone number before returning driver-facing context. UUID contexts bind directly to one route plan. Shared scope contexts may match zero, one, or multiple active route assignments for the phone number:
+
+- zero active matches: `NOT_FOUND`
+- one active match: normal `INVITED` response with `routeAccess.routeContext` set to the concrete route plan id
+- multiple active matches: `MULTIPLE_MATCHES` response with only non-sensitive company/route display context and a resolution hint
+
+The shared-scope path lets a dispatcher/company code show enough company guidance for the driver to identify the right operator while still requiring a route-specific invite link/code before route access is issued.
 
 Phone numbers must be normalized to E.164 before request.
 
@@ -85,11 +96,45 @@ Safe denial statuses return `200` with no guidance payload:
 
 `NOT_FOUND` covers missing route, no assigned driver, and phone mismatch. This avoids telling a caller which part of the route+phone pair is valid.
 
+Ambiguous shared route/company scope response:
+
+```json
+{
+  "data": {
+    "status": "MULTIPLE_MATCHES",
+    "matches": [
+      {
+        "companyDisplayName": "Tomatono Toronto",
+        "shopDomain": "tomatono.myshopify.com",
+        "routeName": "Tuesday AM Route",
+        "deliveryDate": "2026-05-12",
+        "timezone": "America/Toronto",
+        "pickupGuidance": "Meet at dispatch desk by 9:00 AM",
+        "operatorSupportContact": "+14165550000"
+      },
+      {
+        "companyDisplayName": "North Market",
+        "shopDomain": "north-market.myshopify.com",
+        "routeName": "North PM Route",
+        "deliveryDate": "2026-05-12",
+        "timezone": "America/Toronto",
+        "pickupGuidance": "Use the route-specific invite link from dispatch.",
+        "operatorSupportContact": "+14165550001"
+      }
+    ],
+    "resolutionHint": "Use the route-specific invite link/code from dispatch."
+  },
+  "error": null
+}
+```
+
 ## Data minimization
 
-The lookup response must not include delivery stops, customer addresses, coordinates, or order data. It only returns enough non-sensitive context for the driver to confirm the company/shop/route before the consent gate, plus a short-lived bearer token for the matched driver/shop boundary.
+The lookup response must not include delivery stops, customer addresses, coordinates, or order data. `INVITED` only returns enough non-sensitive context for the driver to confirm the company/shop/route before the consent gate, plus a short-lived bearer token for the matched driver/shop boundary.
 
 `driverAccess.accessToken` is a server-signed HS256 JWT with audience `clever-delivery-driver`. It is scoped to the matched `driverId` and `shopDomain`, expires after 900 seconds, and is intended only for the next driver-app calls such as `POST /driver/consents` and `GET /driver/assigned-route`. Denial responses never include `driverAccess`. OTP/deep-link hardening, refresh sessions, and token rotation remain follow-up security work.
+
+`MULTIPLE_MATCHES` responses are stricter than `INVITED`: they must not include `driverAccess`, `driverContext`, `routeAccess`, `routePlanId`, stops, customer names, customer addresses, coordinates, orders, proof-media data, or any other route-specific bearer credential. They are only for disambiguation and should prompt the app to ask the driver for a route-specific invite link/code from dispatch.
 
 ## Adjacent and follow-up APIs
 

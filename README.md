@@ -181,12 +181,14 @@ POST /driver/route-access/lookup
 Content-Type: application/json
 
 {
-  "routeContext": "<route-plan-id-uuid>",
+  "routeContext": "<route-plan-id-uuid-or-shared-route-scope>",
   "phoneE164": "+14165550123"
 }
 ```
 
-The route is registered when `JWT_SECRET` is configured with the Driver API runtime. It validates that route context and E.164 phone are present before lookup, then checks the existing shop/route plan/assigned driver boundary. A matched active driver receives non-sensitive company guidance, `nextState: "consent_required"`, and a 900-second `driverAccess` bearer token for consent and assigned-route calls. Missing route, phone mismatch, inactive driver, and suspended driver responses do not include tokens, stop/customer/location details, or driver internals.
+The route is registered when `JWT_SECRET` is configured with the Driver API runtime. It validates that route context and E.164 phone are present before lookup, then checks the existing shop/route plan/assigned driver boundary. A matched active driver receives non-sensitive company guidance, `nextState: "consent_required"`, and a 900-second `driverAccess` bearer token for consent and assigned-route calls.
+
+`routeContext` may be an exact `RoutePlan.id` UUID or a shared company/route scope stored at `RoutePlan.constraints.routeScope.routeScopeKey`. A shared scope with one active phone match resolves to the concrete route plan id. A shared scope with multiple active phone matches returns `MULTIPLE_MATCHES` with only company/route display context and a dispatch resolution hint; it does not include `driverAccess`, `driverContext`, `routeAccess`, `routePlanId`, stops, customer addresses, coordinates, order data, or proof data. Missing route, phone mismatch, inactive driver, and suspended driver responses also omit tokens, stop/customer/location details, and driver internals.
 
 See `docs/api/driver-route-access.md` for the response contract and minimization notes.
 
