@@ -85,7 +85,8 @@ export class PrismaDriverProofMediaRepository {
 
     const mediaId = this.createMediaId();
     const uploadedAt = this.now();
-    const sha256 = createHash('sha256').update(input.fileBytes).digest('hex');
+    const storedFileBytes = sanitizeProofMediaBytes(input.contentType, input.fileBytes);
+    const sha256 = createHash('sha256').update(storedFileBytes).digest('hex');
     const storageKey = buildStorageKey({
       deliveryStopId: input.deliveryStopId,
       extension: extensionFor(input.contentType, input.filename),
@@ -93,7 +94,7 @@ export class PrismaDriverProofMediaRepository {
       routePlanId: input.routePlanId,
       shopDomain
     });
-    await writeStoredFile(this.options.storageRoot, storageKey, input.fileBytes);
+    await writeStoredFile(this.options.storageRoot, storageKey, storedFileBytes);
 
     await this.prisma.driverProofMedia.create({
       data: {
@@ -106,7 +107,7 @@ export class PrismaDriverProofMediaRepository {
         routePlanId: input.routePlanId,
         sha256,
         shopId: shop.id,
-        sizeBytes: input.fileBytes.byteLength,
+        sizeBytes: storedFileBytes.byteLength,
         source: toPrismaSource(input.source),
         storageKey,
         uploadedAt
@@ -118,7 +119,7 @@ export class PrismaDriverProofMediaRepository {
       kind: 'photo',
       mediaId,
       sha256,
-      sizeBytes: input.fileBytes.byteLength,
+      sizeBytes: storedFileBytes.byteLength,
       source: input.source,
       storageKey,
       uploadedAt: uploadedAt.toISOString()
@@ -221,6 +222,73 @@ function extensionFor(contentType: string, filename: string): string {
 
   const match = /\.([a-z0-9]{1,8})$/iu.exec(filename.trim());
   return match?.[1] === undefined ? '.bin' : `.${match[1].toLowerCase()}`;
+}
+
+function sanitizeProofMediaBytes(contentType: string, fileBytes: Buffer): Buffer {
+  if (contentType.trim().toLowerCase() !== 'image/jpeg') {
+    return fileBytes;
+  }
+
+  return stripJpegExifApp1Segments(fileBytes);
+}
+
+function stripJpegExifApp1Segments(fileBytes: Buffer): Buffer {
+  if (fileBytes.length < 4 || fileBytes[0] !== 0xff || fileBytes[1] !== 0xd8) {
+    return fileBytes;
+  }
+
+  const chunks: Buffer[] = [fileBytes.subarray(0, 2)];
+  let offset = 2;
+  let stripped = false;
+
+  while (offset < fileBytes.length) {
+    if (fileBytes[offset] !== 0xff) {
+      chunks.push(fileBytes.subarray(offset));
+      break;
+    }
+
+    const markerStart = offset;
+    while (offset < fileBytes.length && fileBytes[offset] === 0xff) {
+      offset += 1;
+    }
+
+    const marker = fileBytes[offset];
+    if (marker === undefined) {
+      chunks.push(fileBytes.subarray(markerStart));
+      break;
+    }
+    offset += 1;
+
+    if (marker === 0xda || marker === 0xd9) {
+      chunks.push(fileBytes.subarray(markerStart));
+      break;
+    }
+
+    if (offset + 2 > fileBytes.length) {
+      return fileBytes;
+    }
+
+    const segmentLength = fileBytes.readUInt16BE(offset);
+    if (segmentLength < 2) {
+      return fileBytes;
+    }
+
+    const segmentEnd = offset + segmentLength;
+    if (segmentEnd > fileBytes.length) {
+      return fileBytes;
+    }
+
+    const payloadStart = offset + 2;
+    const isExifApp1 = marker === 0xe1 && fileBytes.subarray(payloadStart, payloadStart + 6).equals(Buffer.from('Exif\0\0'));
+    if (isExifApp1) {
+      stripped = true;
+    } else {
+      chunks.push(fileBytes.subarray(markerStart, segmentEnd));
+    }
+    offset = segmentEnd;
+  }
+
+  return stripped ? Buffer.concat(chunks) : fileBytes;
 }
 
 function toPrismaSource(source: DriverProofMediaSource): PrismaProofMediaSource {

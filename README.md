@@ -241,7 +241,7 @@ Authorization: Bearer <server-issued driver JWT>
 Content-Type: multipart/form-data
 ```
 
-Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, writes bytes under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`), and stores `DriverProofMedia` metadata with `storageKey`, `sizeBytes`, and `sha256`. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage, signed retrieval/access, and malware scanning remain hardening work.
+Fields are `deliveryStopId`, `routePlanId`, `source` (`camera` or `library`), and image `file`. The route verifies the Driver API bearer token, validates multipart image payloads, checks that the route/stop belongs to the token driver/shop boundary, strips JPEG EXIF APP1 metadata before persistence, writes bytes under `DRIVER_PROOF_MEDIA_STORAGE_DIR` (default `var/driver-proof-media`), and stores `DriverProofMedia` metadata with `storageKey`, sanitized `sizeBytes`, and sanitized `sha256`. Cleanup jobs can use `DRIVER_PROOF_MEDIA_RETENTION_DAYS` (default 180) and `deleteExpiredProofMedia()` to remove expired local bytes and mark metadata with `deletedAt`; production object storage, signed retrieval/access, and malware scanning remain hardening work.
 
 Manual or cron-style cleanup command:
 

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -77,6 +78,106 @@ describe('PrismaDriverProofMediaRepository', () => {
       storageKey: 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg',
       uploadedAt: '2026-05-12T10:00:00.000Z'
     });
+  });
+
+  test('strips JPEG EXIF metadata before writing proof media bytes and metadata', async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), 'clever-proof-media-'));
+    const { prisma } = createPrismaHarness();
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, {
+      createMediaId: () => '11111111-1111-4111-8111-111111111111',
+      now: () => now,
+      storageRoot
+    });
+    const fileBytes = jpegWithExifBytes();
+    const sanitizedBytes = jpegWithoutExifBytes();
+
+    const result = await repository.storeProofMedia({
+      contentType: 'image/jpeg',
+      deliveryStopId: 'stop-id',
+      driverId: 'driver-id',
+      fileBytes,
+      filename: 'proof-with-exif.jpg',
+      routePlanId: 'route-plan-id',
+      shopDomain: 'tomatono.myshopify.com',
+      source: 'library'
+    });
+
+    const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg';
+    const sanitizedSha256 = sha256Hex(sanitizedBytes);
+    expect(prisma.driverProofMedia.create).toHaveBeenCalledWith({
+      data: {
+        contentType: 'image/jpeg',
+        deliveryStopId: 'stop-id',
+        driverId: 'driver-id',
+        id: '11111111-1111-4111-8111-111111111111',
+        kind: 'PHOTO',
+        originalFilename: 'proof-with-exif.jpg',
+        routePlanId: 'route-plan-id',
+        sha256: sanitizedSha256,
+        shopId: 'shop-id',
+        sizeBytes: sanitizedBytes.byteLength,
+        source: 'LIBRARY',
+        storageKey,
+        uploadedAt: now
+      }
+    });
+    await expect(readFile(join(storageRoot, ...storageKey.split('/')))).resolves.toEqual(sanitizedBytes);
+    expect(result).toEqual(expect.objectContaining({
+      sha256: sanitizedSha256,
+      sizeBytes: sanitizedBytes.byteLength,
+      source: 'library',
+      storageKey
+    }));
+    expect(sanitizedBytes.includes(Buffer.from('Exif'))).toBe(false);
+    expect(fileBytes.includes(Buffer.from('Exif'))).toBe(true);
+  });
+
+  test('keeps JPEG proof media without EXIF metadata unchanged', async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), 'clever-proof-media-'));
+    const { prisma } = createPrismaHarness();
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, {
+      createMediaId: () => '11111111-1111-4111-8111-111111111111',
+      now: () => now,
+      storageRoot
+    });
+    const fileBytes = jpegWithoutExifBytes();
+
+    const result = await repository.storeProofMedia({
+      contentType: 'image/jpeg',
+      deliveryStopId: 'stop-id',
+      driverId: 'driver-id',
+      fileBytes,
+      filename: 'proof-without-exif.jpg',
+      routePlanId: 'route-plan-id',
+      shopDomain: 'tomatono.myshopify.com',
+      source: 'camera'
+    });
+
+    const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg';
+    const expectedSha256 = sha256Hex(fileBytes);
+    expect(prisma.driverProofMedia.create).toHaveBeenCalledWith({
+      data: {
+        contentType: 'image/jpeg',
+        deliveryStopId: 'stop-id',
+        driverId: 'driver-id',
+        id: '11111111-1111-4111-8111-111111111111',
+        kind: 'PHOTO',
+        originalFilename: 'proof-without-exif.jpg',
+        routePlanId: 'route-plan-id',
+        sha256: expectedSha256,
+        shopId: 'shop-id',
+        sizeBytes: fileBytes.byteLength,
+        source: 'CAMERA',
+        storageKey,
+        uploadedAt: now
+      }
+    });
+    await expect(readFile(join(storageRoot, ...storageKey.split('/')))).resolves.toEqual(fileBytes);
+    expect(result).toEqual(expect.objectContaining({
+      sha256: expectedSha256,
+      sizeBytes: fileBytes.byteLength,
+      storageKey
+    }));
   });
 
   test('rejects proof media outside the token driver route scope before writing metadata', async () => {
@@ -225,4 +326,27 @@ function createPrismaHarness(input: {
       }
     }
   };
+}
+
+function jpegWithExifBytes(): Buffer {
+  return Buffer.from([
+    0xff, 0xd8,
+    0xff, 0xe0, 0x00, 0x08, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+    0xff, 0xe1, 0x00, 0x0a, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x01, 0x02,
+    0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+    0x11, 0x22, 0xff, 0xd9
+  ]);
+}
+
+function jpegWithoutExifBytes(): Buffer {
+  return Buffer.from([
+    0xff, 0xd8,
+    0xff, 0xe0, 0x00, 0x08, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+    0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+    0x11, 0x22, 0xff, 0xd9
+  ]);
+}
+
+function sha256Hex(value: Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
 }
