@@ -18,9 +18,9 @@ This repository currently contains the basic Node.js/TypeScript API scaffold plu
 - Shopify session-token verifier, token-exchange client, API route, and env-driven runtime wiring
 - Shopify HTTPS webhook HMAC verifier, receive route, and idempotent receipt-storage contract
 - Shopify Admin GraphQL client plus order-sync query/mapper/service foundation
-- Driver API bearer-token verifier plus idempotent driver-event ingest route
+- Driver API bearer-token verifier, route+phone access lookup, consent persistence, and idempotent driver-event ingest route
 
-Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/route-list APIs, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/route-list APIs, assigned route/stop reads, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
@@ -182,6 +182,31 @@ Content-Type: application/json
 The route is registered when `JWT_SECRET` is configured with the Driver API runtime. It validates that route context and E.164 phone are present before lookup, then checks the existing shop/route plan/assigned driver boundary. A matched active driver receives only non-sensitive company guidance and `nextState: "consent_required"`. Missing route, phone mismatch, inactive driver, and suspended driver responses do not include stop/customer/location details.
 
 See `docs/api/driver-route-access.md` for the response contract and minimization notes.
+
+## Driver consent API readiness
+
+After a matched route+phone lookup returns `nextState: "consent_required"`, driver clients can persist required notice acceptance before requesting assigned route details:
+
+```http
+POST /driver/consents
+Authorization: Bearer <server-issued driver JWT>
+Content-Type: application/json
+
+{
+  "routeContext": "<route-plan-id-uuid>",
+  "recordedAt": "2026-05-12T05:50:00.000Z",
+  "deviceContext": { "platform": "ios" },
+  "appContext": { "appVersion": "0.1.0" },
+  "consents": [
+    { "type": "LOCATION_INFORMATION", "version": "location-v1", "accepted": true },
+    { "type": "PERSONAL_INFORMATION", "version": "privacy-v1", "accepted": true }
+  ]
+}
+```
+
+The route is registered when `JWT_SECRET` is configured. It verifies the Driver API bearer token, records consent rows under the token driver/shop boundary, and returns only `CONSENT_RECORDED` evidence. It does not return route stops, customer addresses, coordinates, or order data.
+
+See `docs/api/driver-consents.md` for the request/response contract, persistence model, and minimization notes.
 
 ## Driver API event ingest readiness
 

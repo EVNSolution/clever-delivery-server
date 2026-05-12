@@ -35,6 +35,7 @@ describe('Prisma schema', () => {
       'RoutePlanStop',
       'Driver',
       'DriverSession',
+      'DriverConsentRecord',
       'Vehicle',
       'DriverEvent'
     ]) {
@@ -45,6 +46,8 @@ describe('Prisma schema', () => {
     expect(schema).toMatch(/@@unique\(\[shopId, shopifyOrderGid\]/);
     expect(schema).toMatch(/@@unique\(\[routePlanId, sequence\]/);
     expect(schema).toMatch(/@@unique\(\[routePlanId, deliveryStopId\]/);
+    expect(schema).toContain('enum DriverConsentType');
+    expect(schema).toMatch(/@@unique\(\[driverId, consentType, consentVersion\]/);
     expect(schema).toMatch(/@@unique\(\[driverId, clientEventId\]/);
   });
 

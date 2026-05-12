@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 
+import { PrismaDriverConsentRepository } from './driver-consent.repository.js';
 import { PrismaDriverEventRepository } from './driver-event.repository.js';
 import { PrismaDriverRouteAccessRepository } from './driver-route-access.repository.js';
 import type { DriverApiDependencies } from '../../routes/driver-events.routes.js';
@@ -20,6 +21,7 @@ export function loadDriverApiDependencies(
   }
 
   return {
+    driverConsentService: new PrismaDriverConsentRepository(input.prisma),
     driverEventService: new PrismaDriverEventRepository(input.prisma),
     jwtSecret,
     routeAccessService: new PrismaDriverRouteAccessRepository(input.prisma)

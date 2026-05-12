@@ -84,6 +84,11 @@ enum DriverEventType {
   NOTE_ADDED
 }
 
+enum DriverConsentType {
+  LOCATION_INFORMATION
+  PERSONAL_INFORMATION
+}
+
 model Shop {
   id                          String                @id @default(uuid()) @db.Uuid
   shopDomain                  String                @db.Text
@@ -106,6 +111,7 @@ model Shop {
   drivers                     Driver[]
   vehicles                    Vehicle[]
   driverEvents                DriverEvent[]
+  driverConsentRecords        DriverConsentRecord[]
 
   @@unique([shopDomain])
   @@unique([shopifyShopGid])
@@ -195,8 +201,8 @@ model DeliveryStop {
   routePlanStops  RoutePlanStop[]
   driverEvents    DriverEvent[]
 
-  @@index([shopId, deliveryDate, status])
   @@unique([shopId, orderId])
+  @@index([shopId, deliveryDate, status])
   @@map("delivery_stops")
 }
 
@@ -246,19 +252,20 @@ model RoutePlanStop {
 }
 
 model Driver {
-  id           String          @id @default(uuid()) @db.Uuid
-  shopId       String          @db.Uuid
-  shop         Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  displayName  String          @db.Text
-  phone        String?         @db.Text
-  status       DriverStatus    @default(ACTIVE)
-  authSubject  String?         @unique @db.Text
-  lastSeenAt   DateTime?       @db.Timestamptz(6)
-  createdAt    DateTime        @default(now()) @db.Timestamptz(6)
-  updatedAt    DateTime        @updatedAt @db.Timestamptz(6)
-  sessions     DriverSession[]
-  routePlans   RoutePlan[]
-  driverEvents DriverEvent[]
+  id             String                @id @default(uuid()) @db.Uuid
+  shopId         String                @db.Uuid
+  shop           Shop                  @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  displayName    String                @db.Text
+  phone          String?               @db.Text
+  status         DriverStatus          @default(ACTIVE)
+  authSubject    String?               @unique @db.Text
+  lastSeenAt     DateTime?             @db.Timestamptz(6)
+  createdAt      DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime              @updatedAt @db.Timestamptz(6)
+  sessions       DriverSession[]
+  routePlans     RoutePlan[]
+  driverEvents   DriverEvent[]
+  consentRecords DriverConsentRecord[]
 
   @@index([shopId, status])
   @@map("drivers")
@@ -276,6 +283,27 @@ model DriverSession {
 
   @@index([driverId, expiresAt])
   @@map("driver_sessions")
+}
+
+model DriverConsentRecord {
+  id             String            @id @default(uuid()) @db.Uuid
+  shopId         String            @db.Uuid
+  shop           Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  driverId       String            @db.Uuid
+  driver         Driver            @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  consentType    DriverConsentType
+  consentVersion String            @db.Text
+  accepted       Boolean
+  routeContext   String?           @db.Text
+  deviceContext  Json?
+  appContext     Json?
+  recordedAt     DateTime          @db.Timestamptz(6)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(6)
+
+  @@unique([driverId, consentType, consentVersion])
+  @@index([shopId, driverId, recordedAt])
+  @@map("driver_consent_records")
 }
 
 model Vehicle {
