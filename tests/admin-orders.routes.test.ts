@@ -124,7 +124,42 @@ describe('Admin orders routes', () => {
     }
   });
 
-  test('rejects order sync snapshots with invalid timestamps as bad requests', async () => {
+  test('accepts Shopify snapshots with blank custom attribute values', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      firstOrder.customAttributes = [
+        { key: 'Delivery Area', value: 'Mississauga' },
+        { key: 'Note (Customer)', value: '' },
+        { key: 'Delivery Day', value: 'Friday 5pm to 9pm *Check delivery map' }
+      ];
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(syncOrdersSnapshot).toHaveBeenCalledOnce();
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      expect(syncInput?.orders[0]?.customAttributes).toEqual([
+        { key: 'Delivery Area', value: 'Mississauga' },
+        { key: 'Delivery Day', value: 'Friday 5pm to 9pm *Check delivery map' }
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('skips malformed order snapshot and returns warnings instead of failing whole sync', async () => {
     const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
     const app = await buildApp({ adminOrders: dependencies });
 
@@ -143,12 +178,301 @@ describe('Admin orders routes', () => {
         url: '/admin/orders/sync'
       });
 
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          orders: [],
+          sync: {
+            created: 0,
+            needsReview: 0,
+            readyToPlan: 0,
+            received: 1,
+            skipped: 1,
+            unchanged: 0,
+            updated: 0
+          },
+          warnings: [
+            {
+              code: 'ORDER_SYNC_SNAPSHOT_SKIPPED',
+              field: 'updatedAt',
+              message: 'Expected ISO date string',
+              orderIndex: 0,
+              orderName: '#1035'
+            }
+          ]
+        },
+        error: null
+      });
+      expect(syncOrdersSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('syncs valid snapshots and skips only malformed snapshots', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const orders = payload.orders as Record<string, unknown>[];
+      const firstOrder = orders[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      orders.push({
+        ...firstOrder,
+        id: 'gid://shopify/Order/456',
+        legacyResourceId: '456',
+        name: '#1036',
+        updatedAt: 'not-a-date'
+      });
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          orders: [canonicalOrder],
+          sync: {
+            created: 1,
+            needsReview: 0,
+            readyToPlan: 1,
+            received: 2,
+            skipped: 1,
+            unchanged: 0,
+            updated: 0
+          },
+          warnings: [
+            {
+              code: 'ORDER_SYNC_SNAPSHOT_SKIPPED',
+              field: 'updatedAt',
+              message: 'Expected ISO date string',
+              orderIndex: 1,
+              orderName: '#1036'
+            }
+          ]
+        },
+        error: null
+      });
+      expect(syncOrdersSnapshot).toHaveBeenCalledOnce();
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      expect(syncInput?.orders).toHaveLength(1);
+      expect(syncInput?.orders[0]?.name).toBe('#1035');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('accepts nullable string fields as null without failing', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      firstOrder.phone = '';
+      firstOrder.email = '  ';
+      firstOrder.note = '';
+      firstOrder.shippingAddress = {
+        ...(firstOrder.shippingAddress as Record<string, unknown>),
+        address1: '',
+        zip: ''
+      };
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      if (syncInput === undefined) {
+        throw new Error('Expected sync input');
+      }
+      expect(syncInput.orders[0]?.phone).toBeNull();
+      expect(syncInput.orders[0]?.email).toBeNull();
+      expect(syncInput.orders[0]?.note).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('accepts shipping coordinates as numeric strings', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      if (typeof firstOrder.shippingAddress !== 'object' || firstOrder.shippingAddress === null) {
+        throw new Error('Expected shippingAddress object');
+      }
+      const shippingAddress = firstOrder.shippingAddress as Record<string, unknown>;
+      shippingAddress.latitude = '43.589';
+      shippingAddress.longitude = '-79.644';
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      if (syncInput === undefined) {
+        throw new Error('Expected sync input');
+      }
+      expect(syncInput.orders[0]?.shippingAddress).toMatchObject({
+        latitude: 43.589,
+        longitude: -79.644
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('accepts numeric-string line item quantities', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      const lineItems = firstOrder.lineItems as { nodes?: Array<Record<string, unknown>> } | undefined;
+      if (lineItems === undefined || typeof lineItems !== 'object' || lineItems === null) {
+        throw new Error('Expected lineItems');
+      }
+      const nodes = lineItems.nodes;
+      if (nodes === undefined || nodes[0] === undefined) {
+        throw new Error('Expected line item node');
+      }
+      nodes[0].quantity = '3';
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      if (syncInput === undefined) {
+        throw new Error('Expected sync input');
+      }
+      expect(syncInput.orders[0]?.lineItems?.nodes?.[0]?.quantity).toBe(3);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('normalizes numeric money amounts as strings', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      firstOrder.currentTotalPriceSet = { shopMoney: { amount: 95, currencyCode: 'CAD' } };
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      if (syncInput === undefined) {
+        throw new Error('Expected sync input');
+      }
+      expect(syncInput.orders[0]?.currentTotalPriceSet?.shopMoney.amount).toBe('95');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('accepts optional nullable fields missing', async () => {
+    const { dependencies, syncOrdersSnapshot } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const payload = orderSyncPayload();
+      const firstOrder = (payload.orders as Record<string, unknown>[])[0];
+      if (firstOrder === undefined) {
+        throw new Error('Expected order payload');
+      }
+      firstOrder.currentTotalPriceSet = null;
+      firstOrder.shippingAddress = undefined;
+      delete firstOrder.note;
+
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload,
+        url: '/admin/orders/sync'
+      });
+
+      expect(response.statusCode).toBe(200);
+      const [syncInput] = syncOrdersSnapshot.mock.calls[0] ?? [];
+      if (syncInput === undefined) {
+        throw new Error('Expected sync input');
+      }
+      expect(syncInput.orders[0]?.currentTotalPriceSet).toBeNull();
+      expect(syncInput.orders[0]?.shippingAddress).toBeNull();
+      expect(syncInput.orders[0]?.note).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('returns parse details for top-level payload errors', async () => {
+    const { dependencies } = createDependencyHarness();
+    const app = await buildApp({ adminOrders: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: {
+          source: 'clever-app-orders',
+          reason: 'manual_refresh',
+          orders: { not: 'an-array' }
+        },
+        url: '/admin/orders/sync'
+      });
+
       expect(response.statusCode).toBe(400);
       expect(response.json()).toEqual({
         data: null,
-        error: { code: 'BAD_REQUEST', message: 'Invalid order sync payload' }
+        error: {
+          code: 'INVALID_ORDER_SYNC_PAYLOAD',
+          message: 'Invalid order sync payload',
+          details: [{ field: 'orders', orderIndex: -1, orderName: '#request', reason: 'Must be an array' }]
+        }
       });
-      expect(syncOrdersSnapshot).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }
