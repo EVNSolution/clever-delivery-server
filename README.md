@@ -58,6 +58,13 @@ docker compose up --build
 
 See `docs/deployment/ec2-ebs.md` for EC2/EBS deployment, backup/restore, and RDS migration-path notes.
 
+## Repository governance
+
+- Contribution flow: `CONTRIBUTING.md`
+- Security reporting and data-handling expectations: `SECURITY.md`
+- Product scope and release constraints: `docs/project-brief.md`
+- Agent workflow rules: `AGENTS.md`
+
 ## Database schema
 
 The repository now includes the first Prisma/PostgreSQL schema at `prisma/schema.prisma`.
