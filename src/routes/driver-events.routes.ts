@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 
 import { verifyDriverToken } from '../modules/driver/driver-token-verifier.js';
+import type {
+  DriverRouteAccessLookupInput,
+  DriverRouteAccessServiceContract
+} from '../modules/driver/driver-route-access.types.js';
 
 export type DriverApiDependencies = {
   driverEventService: {
@@ -19,6 +23,12 @@ export type DriverApiDependencies = {
   };
   jwtSecret: string;
   now?: () => Date;
+  routeAccessService?: DriverRouteAccessServiceContract;
+};
+
+type DriverRouteAccessRequestBody = {
+  phoneE164?: unknown;
+  routeContext?: unknown;
 };
 
 type DriverEventRequestBody = {
@@ -46,6 +56,27 @@ export function registerDriverEventRoutes(
   app: FastifyInstance,
   dependencies: DriverApiDependencies
 ): void {
+  const routeAccessService = dependencies.routeAccessService;
+  if (routeAccessService !== undefined) {
+    app.post<{ Body: DriverRouteAccessRequestBody }>(
+      '/driver/route-access/lookup',
+      async (request, reply) => {
+        let lookupInput: DriverRouteAccessLookupInput;
+        try {
+          lookupInput = readDriverRouteAccessBody(request.body);
+        } catch {
+          return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid route access lookup payload'));
+        }
+
+        const result = await routeAccessService.lookupRouteAccess(lookupInput);
+        return reply.code(200).send({
+          data: result,
+          error: null
+        });
+      }
+    );
+  }
+
   app.post<{ Body: DriverEventRequestBody }>('/driver/events', async (request, reply) => {
     const token = extractBearerToken(request.headers.authorization);
     if (token === null) {
@@ -85,6 +116,18 @@ export function registerDriverEventRoutes(
       error: null
     });
   });
+}
+
+
+function readDriverRouteAccessBody(body: DriverRouteAccessRequestBody): DriverRouteAccessLookupInput {
+  const routeContext = readRequiredString(body.routeContext);
+  const phoneE164 = readRequiredString(body.phoneE164);
+
+  if (!/^\+[1-9]\d{7,14}$/u.test(phoneE164)) {
+    throw new Error('Invalid E.164 phone');
+  }
+
+  return { phoneE164, routeContext };
 }
 
 function readDriverEventBody(body: DriverEventRequestBody): {
