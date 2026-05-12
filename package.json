@@ -19,7 +19,8 @@
     "prisma:generate": "DATABASE_URL=${DATABASE_URL:-postgresql://clever:clever@localhost:5432/clever_delivery} prisma generate",
     "prisma:format": "prisma format",
     "prisma:validate": "DATABASE_URL=${DATABASE_URL:-postgresql://clever:clever@localhost:5432/clever_delivery} prisma validate",
-    "driver:proof-media:cleanup": "tsx src/scripts/cleanup-driver-proof-media.ts"
+    "driver:proof-media:cleanup": "tsx src/scripts/cleanup-driver-proof-media.ts",
+    "driver:proof-media:evidence:seed": "tsx src/scripts/proof-media-evidence-seed.ts"
   },
   "keywords": [
     "shopify",

@@ -258,10 +258,15 @@ The read-access route verifies the bearer token, scopes the media row to token s
 Manual or cron-style cleanup command:
 
 ```bash
+npm run driver:proof-media:evidence:seed
 npm run driver:proof-media:cleanup
 ```
 
-The command prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, `deletedAt`, and `evidenceRecorded`. It wires a cleanup monitor that creates a `RetentionJobRun` row with sanitized counts, cutoff, run time, retention window, batch limit, and optional private `DRIVER_PROOF_MEDIA_CLEANUP_EVIDENCE_REF`. The row intentionally excludes media ids, storage keys, proof bytes, customer data, and coordinates. Deployed scheduler evidence is still required before release.
+The evidence seed prints a non-secret source/runtime audit for the private
+release evidence workspace. It omits bucket names, endpoints, access keys,
+bearer tokens, storage keys, proof bytes, and completed evidence references.
+
+The cleanup command prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, `deletedAt`, and `evidenceRecorded`. It wires a cleanup monitor that creates a `RetentionJobRun` row with sanitized counts, cutoff, run time, retention window, batch limit, and optional private `DRIVER_PROOF_MEDIA_CLEANUP_EVIDENCE_REF`. The row intentionally excludes media ids, storage keys, proof bytes, customer data, and coordinates. Deployed scheduler evidence is still required before release.
 
 See `docs/api/driver-proof-media.md` for the request/response contract and production storage/retention caveats.
 
