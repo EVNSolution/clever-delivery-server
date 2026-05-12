@@ -171,6 +171,69 @@ describe('PrismaDriverProofMediaRepository', () => {
     ]);
   });
 
+  test('creates scoped short-lived proof media read access through the storage backend', async () => {
+    const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/proof-media-id.jpg';
+    const readAccessRequests: {
+      contentType: string;
+      expiresAt: Date;
+      storageKey: string;
+    }[] = [];
+    const storage: DriverProofMediaStorageBackend & {
+      createReadAccess(input: { contentType: string; expiresAt: Date; storageKey: string }): Promise<{ url: string }>;
+    } = {
+      createReadAccess: (input) => {
+        readAccessRequests.push(input);
+        return Promise.resolve({ url: 'https://proof-media.example.test/signed/proof-media-id' });
+      },
+      remove: () => Promise.resolve('removed'),
+      write: () => Promise.resolve()
+    };
+    const { prisma } = createPrismaHarness({
+      proofMedia: {
+        contentType: 'image/jpeg',
+        id: 'proof-media-id',
+        kind: 'PHOTO',
+        storageKey,
+        uploadedAt: now
+      }
+    });
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, {
+      now: () => now,
+      readAccessTtlSeconds: 300,
+      storage
+    });
+
+    const result = await repository.createProofMediaReadAccess({
+      driverId: 'driver-id',
+      mediaId: 'proof-media-id',
+      shopDomain: 'Tomatono.myshopify.com'
+    });
+
+    expect(prisma.shop.findUnique).toHaveBeenCalledWith({ where: { shopDomain: 'tomatono.myshopify.com' } });
+    expect(prisma.driverProofMedia.findFirst).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        driverId: 'driver-id',
+        id: 'proof-media-id',
+        shopId: 'shop-id'
+      }
+    });
+    expect(readAccessRequests).toEqual([
+      {
+        contentType: 'image/jpeg',
+        expiresAt: new Date('2026-05-12T10:05:00.000Z'),
+        storageKey
+      }
+    ]);
+    expect(result).toEqual({
+      contentType: 'image/jpeg',
+      expiresAt: '2026-05-12T10:05:00.000Z',
+      kind: 'photo',
+      mediaId: 'proof-media-id',
+      url: 'https://proof-media.example.test/signed/proof-media-id'
+    });
+  });
+
   test('rejects scanner-blocked proof media before writing bytes or metadata', async () => {
     const writes: { fileBytes: Buffer; storageKey: string }[] = [];
     const scannerCalls: { contentType: string; fileBytes: Buffer; sha256: string; storageKey: string }[] = [];
@@ -426,6 +489,13 @@ describe('PrismaDriverProofMediaRepository', () => {
 
 function createPrismaHarness(input: {
   expiredProofMedia?: { id: string; storageKey: string; uploadedAt: Date }[];
+  proofMedia?: {
+    contentType: string;
+    id: string;
+    kind: 'PHOTO';
+    storageKey: string;
+    uploadedAt: Date;
+  } | null;
   routePlan?: { id: string } | null;
   routePlanStop?: { id: string } | null;
 } = {}) {
@@ -436,6 +506,7 @@ function createPrismaHarness(input: {
       },
       driverProofMedia: {
         create: vi.fn(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...data })),
+        findFirst: vi.fn(() => Promise.resolve(input.proofMedia === undefined ? null : input.proofMedia)),
         findMany: vi.fn(() => Promise.resolve(input.expiredProofMedia ?? [])),
         update: vi.fn(({ data, where }: { data: Record<string, unknown>; where: Record<string, unknown> }) =>
           Promise.resolve({ ...where, ...data })

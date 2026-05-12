@@ -22,6 +22,20 @@ export type StoreDriverProofMediaResult = {
   uploadedAt: string;
 };
 
+export type CreateDriverProofMediaReadAccessInput = {
+  driverId: string;
+  mediaId: string;
+  shopDomain: string;
+};
+
+export type CreateDriverProofMediaReadAccessResult = {
+  contentType: string;
+  expiresAt: string;
+  kind: 'photo';
+  mediaId: string;
+  url: string;
+};
+
 export type DriverProofMediaScanInput = {
   contentType: string;
   fileBytes: Buffer;
@@ -38,6 +52,7 @@ export type DriverProofMediaScanner = {
 };
 
 export type DriverProofMediaServiceContract = {
+  createProofMediaReadAccess(input: CreateDriverProofMediaReadAccessInput): Promise<CreateDriverProofMediaReadAccessResult>;
   storeProofMedia(input: StoreDriverProofMediaInput): Promise<StoreDriverProofMediaResult>;
 };
 
@@ -55,5 +70,12 @@ export class DriverProofMediaScanRejectedError extends Error {
     super(`Proof media rejected by malware scan: ${reason}`);
     this.name = 'DriverProofMediaScanRejectedError';
     this.reason = reason;
+  }
+}
+
+export class DriverProofMediaAccessUnavailableError extends Error {
+  constructor(message = 'Proof media read access is not configured') {
+    super(message);
+    this.name = 'DriverProofMediaAccessUnavailableError';
   }
 }

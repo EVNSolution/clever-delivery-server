@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import {
+  DriverProofMediaAccessUnavailableError,
   DriverProofMediaScanRejectedError,
   DriverProofMediaScopeError
 } from '../src/modules/driver/driver-proof-media.types.js';
@@ -13,6 +14,85 @@ const now = new Date('2026-05-12T10:00:00.000Z');
 const uploadBytes = Buffer.from('synthetic-proof-photo');
 
 describe('Driver proof media route', () => {
+  test('returns short-lived proof media read access for the authenticated driver', async () => {
+    const { app, createProofMediaReadAccess } = await createAppHarness();
+
+    try {
+      const response = await app.inject({
+        headers: {
+          authorization: `Bearer ${driverToken()}`
+        },
+        method: 'GET',
+        url: '/driver/proof-media/proof-media-id/access'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          contentType: 'image/jpeg',
+          expiresAt: '2026-05-12T10:05:00.000Z',
+          kind: 'photo',
+          mediaId: 'proof-media-id',
+          url: 'https://proof-media.example.test/signed/proof-media-id'
+        },
+        error: null
+      });
+      expect(createProofMediaReadAccess).toHaveBeenCalledWith({
+        driverId: 'driver-id',
+        mediaId: 'proof-media-id',
+        shopDomain: 'tomatono.myshopify.com'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('maps proof media read scope rejection to a safe forbidden response', async () => {
+    const { app, createProofMediaReadAccess } = await createAppHarness({ rejectAccessScope: true });
+
+    try {
+      const response = await app.inject({
+        headers: {
+          authorization: `Bearer ${driverToken()}`
+        },
+        method: 'GET',
+        url: '/driver/proof-media/proof-media-id/access'
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'FORBIDDEN', message: 'Proof media route scope rejected' }
+      });
+      expect(createProofMediaReadAccess).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('maps missing proof media read backend support to service unavailable', async () => {
+    const { app, createProofMediaReadAccess } = await createAppHarness({ rejectAccessUnavailable: true });
+
+    try {
+      const response = await app.inject({
+        headers: {
+          authorization: `Bearer ${driverToken()}`
+        },
+        method: 'GET',
+        url: '/driver/proof-media/proof-media-id/access'
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'PROOF_MEDIA_ACCESS_UNAVAILABLE', message: 'Proof media access is not configured' }
+      });
+      expect(createProofMediaReadAccess).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
   test('rejects proof media uploads without a driver bearer token', async () => {
     const { app, storeProofMedia } = await createAppHarness();
 
@@ -198,16 +278,51 @@ type StoreProofMedia = (input: {
   uploadedAt: string;
 }>;
 
+type CreateProofMediaReadAccess = (input: {
+  driverId: string;
+  mediaId: string;
+  shopDomain: string;
+}) => Promise<{
+  contentType: string;
+  expiresAt: string;
+  kind: 'photo';
+  mediaId: string;
+  url: string;
+}>;
+
 type ProofMediaDependencies = DriverApiDependencies & {
   proofMediaService: {
+    createProofMediaReadAccess: CreateProofMediaReadAccess;
     storeProofMedia: StoreProofMedia;
   };
 };
 
-async function createAppHarness(input: { rejectScan?: boolean; rejectStorage?: boolean } = {}): Promise<{
+async function createAppHarness(input: {
+  rejectAccessScope?: boolean;
+  rejectAccessUnavailable?: boolean;
+  rejectScan?: boolean;
+  rejectStorage?: boolean;
+} = {}): Promise<{
   app: Awaited<ReturnType<typeof buildApp>>;
+  createProofMediaReadAccess: ReturnType<typeof vi.fn<CreateProofMediaReadAccess>>;
   storeProofMedia: ReturnType<typeof vi.fn<StoreProofMedia>>;
 }> {
+  const createProofMediaReadAccess = vi.fn<CreateProofMediaReadAccess>(() => {
+    if (input.rejectAccessScope === true) {
+      return Promise.reject(new DriverProofMediaScopeError('Proof media not found for driver'));
+    }
+    if (input.rejectAccessUnavailable === true) {
+      return Promise.reject(new DriverProofMediaAccessUnavailableError());
+    }
+
+    return Promise.resolve({
+      contentType: 'image/jpeg',
+      expiresAt: '2026-05-12T10:05:00.000Z',
+      kind: 'photo',
+      mediaId: 'proof-media-id',
+      url: 'https://proof-media.example.test/signed/proof-media-id'
+    });
+  });
   const storeProofMedia = vi.fn<StoreProofMedia>(() => {
     if (input.rejectStorage === true) {
       return Promise.reject(new DriverProofMediaScopeError('Route plan not assigned to driver'));
@@ -235,12 +350,13 @@ async function createAppHarness(input: { rejectScan?: boolean; rejectStorage?: b
     jwtSecret: secret,
     now: () => now,
     proofMediaService: {
+      createProofMediaReadAccess,
       storeProofMedia
     }
   };
 
   const app = await buildApp({ driverApi: dependencies });
-  return { app, storeProofMedia };
+  return { app, createProofMediaReadAccess, storeProofMedia };
 }
 
 function multipartUploadRequest(input: { contentType?: string; source?: string } = {}): {

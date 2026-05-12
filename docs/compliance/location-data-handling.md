@@ -58,6 +58,7 @@ Engineering classification rule:
 | `GET /driver/assigned-route` | Yes | `PROVIDE` by engineering default | Enforces bearer-token shop/driver boundary before returning stop address/location context; dedicated access/usage log persistence remains follow-up. |
 | Driver stop detail read, once implemented | Yes | `PROVIDE` by engineering default | Must block other drivers with 403 and log denied access without coordinates. |
 | `POST /driver/proof-media` | Yes | Not normally location usage unless image metadata/location is stored | Stores proof photo metadata and file bytes under driver/shop/route/stop scope; JPEG EXIF APP1 metadata is stripped before storage and any configured scanner sees sanitized bytes before persistence to reduce accidental image location/device metadata retention and block rejected media. |
+| `GET /driver/proof-media/:mediaId/access` | Yes | `PROVIDE` by engineering default | Verifies bearer-token shop/driver boundary, requires undeleted media, and returns only short-lived storage backend read access metadata; dedicated access/usage log persistence remains follow-up. |
 | `POST /driver/events` with `LOCATION_UPDATED` | Yes | `COLLECT` | Driver GPS collection. |
 | Retention cleanup execution | Yes | `INTERNAL_LIFECYCLE` via `RetentionJobRun` | Record deleted/anonymized counts and job id. |
 | rawPayload sanitizer/backfill execution | Yes | `INTERNAL_LIFECYCLE` via `RetentionJobRun` | Record dry-run/apply counts and evidence artifact path. |
@@ -136,6 +137,7 @@ The codebase can support technical controls, but the service plan also needs man
 ## Known current gaps
 
 - `DriverConsentRecord` exists for notice acceptance evidence and `DriverProofMedia` exists for scoped proof upload metadata; no dedicated `LocationAccessLog` / `LocationUsageRecord` / `LocationPermissionAudit` models yet.
+- Proof-media read access is scoped through the bearer-token shop/driver boundary and a short-lived storage backend read-access contract; the default local backend does not expose public file URLs, and production object-storage backend wiring/evidence remains open.
 - Proof-media retention cleanup support exists for local stored bytes and `deletedAt` metadata marking through the driver proof-media repository, with `npm run driver:proof-media:cleanup` available for manual or cron-style execution; no deployed scheduler or `RetentionJobRun` persistence exists yet.
 - Proof-media scanner rejection hook exists before byte/metadata persistence, but production scanner backend selection, deployment evidence, and monitoring/alerting evidence are not complete yet.
 - No 5-year access-right grant/change/revoke audit table yet.

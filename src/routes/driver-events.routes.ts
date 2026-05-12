@@ -14,6 +14,7 @@ import type {
   DriverRouteAccessServiceContract
 } from '../modules/driver/driver-route-access.types.js';
 import {
+  DriverProofMediaAccessUnavailableError,
   DriverProofMediaScanRejectedError,
   DriverProofMediaScopeError
 } from '../modules/driver/driver-proof-media.types.js';
@@ -71,6 +72,10 @@ type DriverEventRequestBody = {
   longitude?: unknown;
   occurredAt?: unknown;
   routePlanId?: unknown;
+};
+
+type DriverProofMediaAccessParams = {
+  mediaId?: unknown;
 };
 
 const DRIVER_EVENT_TYPES = new Set([
@@ -197,6 +202,55 @@ export function registerDriverEventRoutes(
 
   const proofMediaService = dependencies.proofMediaService;
   if (proofMediaService !== undefined) {
+    app.get<{ Params: DriverProofMediaAccessParams }>('/driver/proof-media/:mediaId/access', async (request, reply) => {
+      const token = extractBearerToken(request.headers.authorization);
+      if (token === null) {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', 'Missing driver bearer token'));
+      }
+
+      let driverContext: { driverId: string; shopDomain: string };
+      try {
+        const now = dependencies.now?.();
+        driverContext = verifyDriverToken(
+          token,
+          now === undefined ? { secret: dependencies.jwtSecret } : { now, secret: dependencies.jwtSecret }
+        );
+      } catch {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', 'Invalid driver bearer token'));
+      }
+
+      let mediaId: string;
+      try {
+        mediaId = readRequiredString(request.params.mediaId);
+      } catch {
+        return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid proof media access request'));
+      }
+
+      try {
+        const result = await proofMediaService.createProofMediaReadAccess({
+          driverId: driverContext.driverId,
+          mediaId,
+          shopDomain: driverContext.shopDomain
+        });
+
+        return reply.code(200).send({
+          data: result,
+          error: null
+        });
+      } catch (error) {
+        if (isProofMediaScopeError(error)) {
+          return reply.code(403).send(errorResponse('FORBIDDEN', 'Proof media route scope rejected'));
+        }
+        if (isProofMediaAccessUnavailableError(error)) {
+          return reply
+            .code(503)
+            .send(errorResponse('PROOF_MEDIA_ACCESS_UNAVAILABLE', 'Proof media access is not configured'));
+        }
+
+        throw error;
+      }
+    });
+
     app.post('/driver/proof-media', async (request, reply) => {
       const token = extractBearerToken(request.headers.authorization);
       if (token === null) {
@@ -497,6 +551,10 @@ function isProofMediaScopeError(error: unknown): boolean {
 
 function isProofMediaScanRejectedError(error: unknown): boolean {
   return error instanceof DriverProofMediaScanRejectedError;
+}
+
+function isProofMediaAccessUnavailableError(error: unknown): boolean {
+  return error instanceof DriverProofMediaAccessUnavailableError;
 }
 
 function extractBearerToken(authorization: string | undefined): string | null {
