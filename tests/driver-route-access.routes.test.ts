@@ -150,6 +150,78 @@ describe('Driver route access lookup route', () => {
     }
   });
 
+  test('returns multiple matches without issuing driver access', async () => {
+    const multipleMatches = await createAppHarness({
+      result: {
+        status: 'MULTIPLE_MATCHES',
+        matches: [
+          {
+            companyDisplayName: 'Tomatono Toronto',
+            deliveryDate: '2026-05-12',
+            operatorSupportContact: '+14165550000',
+            pickupGuidance: 'Meet at dispatch desk by 9:00 AM',
+            routeName: 'Tuesday AM Route',
+            shopDomain: 'tomatono.myshopify.com',
+            timezone: 'America/Toronto'
+          },
+          {
+            companyDisplayName: 'North Market',
+            deliveryDate: '2026-05-12',
+            operatorSupportContact: '+14165550001',
+            pickupGuidance: 'Use the route-specific invite link from dispatch.',
+            routeName: 'North PM Route',
+            shopDomain: 'north-market.myshopify.com',
+            timezone: 'America/Toronto'
+          }
+        ],
+        resolutionHint: 'Use the route-specific invite link/code from dispatch.'
+      }
+    });
+
+    try {
+      const response = await multipleMatches.app.inject({
+        method: 'POST',
+        payload: { phoneE164: '+14165550123', routeContext: 'toronto-shared-route-code' },
+        url: '/driver/route-access/lookup'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          status: 'MULTIPLE_MATCHES',
+          matches: [
+            {
+              companyDisplayName: 'Tomatono Toronto',
+              deliveryDate: '2026-05-12',
+              operatorSupportContact: '+14165550000',
+              pickupGuidance: 'Meet at dispatch desk by 9:00 AM',
+              routeName: 'Tuesday AM Route',
+              shopDomain: 'tomatono.myshopify.com',
+              timezone: 'America/Toronto'
+            },
+            {
+              companyDisplayName: 'North Market',
+              deliveryDate: '2026-05-12',
+              operatorSupportContact: '+14165550001',
+              pickupGuidance: 'Use the route-specific invite link from dispatch.',
+              routeName: 'North PM Route',
+              shopDomain: 'north-market.myshopify.com',
+              timezone: 'America/Toronto'
+            }
+          ],
+          resolutionHint: 'Use the route-specific invite link/code from dispatch.'
+        },
+        error: null
+      });
+      expect(JSON.stringify(response.json())).not.toContain('driverAccess');
+      expect(JSON.stringify(response.json())).not.toContain('driverContext');
+      expect(JSON.stringify(response.json())).not.toContain('routePlanId');
+      expect(JSON.stringify(response.json())).not.toContain('address1');
+    } finally {
+      await multipleMatches.app.close();
+    }
+  });
+
   test('distinguishes inactive and suspended driver states without guidance', async () => {
     const inactive = await createAppHarness({ status: 'DISABLED' });
     const blocked = await createAppHarness({ status: 'BLOCKED' });
@@ -178,13 +250,16 @@ describe('Driver route access lookup route', () => {
 });
 
 async function createAppHarness(
-  override: { status?: 'BLOCKED' | 'DISABLED' | 'NOT_FOUND' } = {}
+  override: {
+    result?: Awaited<ReturnType<LookupRouteAccess>>;
+    status?: 'BLOCKED' | 'DISABLED' | 'NOT_FOUND';
+  } = {}
 ): Promise<{
   app: Awaited<ReturnType<typeof buildApp>>;
   lookupRouteAccess: ReturnType<typeof vi.fn<LookupRouteAccess>>;
 }> {
   const lookupRouteAccess = vi.fn<LookupRouteAccess>(() =>
-    Promise.resolve(override.status === undefined ? invitedLookup : { status: override.status })
+    Promise.resolve(override.result ?? (override.status === undefined ? invitedLookup : { status: override.status }))
   );
   const recordDriverEvent = vi.fn<RecordDriverEvent>(() =>
     Promise.resolve({ duplicate: false, eventId: 'unused-driver-event-id' })

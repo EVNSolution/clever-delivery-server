@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 import type {
+  DriverRouteAccessAmbiguousMatch,
   DriverRouteAccessCompanyGuidance,
   DriverRouteAccessLookupInput,
   DriverRouteAccessLookupResult,
@@ -40,7 +41,7 @@ export class PrismaDriverRouteAccessRepository implements DriverRouteAccessServi
 
   async lookupRouteAccess(input: DriverRouteAccessLookupInput): Promise<DriverRouteAccessLookupResult> {
     if (!UUID_PATTERN.test(input.routeContext)) {
-      return { status: 'NOT_FOUND' };
+      return this.lookupRouteScopeAccess(input);
     }
 
     const routePlan = await this.prisma.routePlan.findUnique({
@@ -53,6 +54,37 @@ export class PrismaDriverRouteAccessRepository implements DriverRouteAccessServi
     }
 
     return mapRoutePlan(routePlan, input);
+  }
+
+  private async lookupRouteScopeAccess(input: DriverRouteAccessLookupInput): Promise<DriverRouteAccessLookupResult> {
+    const routePlans = await this.prisma.routePlan.findMany({
+      orderBy: [{ planDate: 'asc' }, { name: 'asc' }],
+      select: routePlanSelect,
+      take: 3,
+      where: {
+        constraints: { path: ['routeScope', 'routeScopeKey'], equals: input.routeContext },
+        driver: { is: { phone: input.phoneE164, status: 'ACTIVE' } }
+      }
+    });
+
+    if (routePlans.length === 0) {
+      return { status: 'NOT_FOUND' };
+    }
+
+    if (routePlans.length === 1) {
+      const routePlan = routePlans[0];
+      if (routePlan === undefined) {
+        return { status: 'NOT_FOUND' };
+      }
+
+      return mapRoutePlan(routePlan, { ...input, routeContext: routePlan.id });
+    }
+
+    return {
+      status: 'MULTIPLE_MATCHES',
+      matches: routePlans.slice(0, 2).map(buildAmbiguousMatch),
+      resolutionHint: 'Use the route-specific invite link/code from dispatch.'
+    };
   }
 }
 
@@ -101,6 +133,19 @@ function buildCompanyGuidance(routePlan: DriverRoutePlanRecord): DriverRouteAcce
     routeName: routePlan.name,
     shopDomain,
     timezone: readString(constraints?.timezone)
+  };
+}
+
+function buildAmbiguousMatch(routePlan: DriverRoutePlanRecord): DriverRouteAccessAmbiguousMatch {
+  const guidance = buildCompanyGuidance(routePlan);
+  return {
+    companyDisplayName: guidance.companyDisplayName,
+    deliveryDate: guidance.deliveryDate,
+    operatorSupportContact: guidance.operatorSupportContact,
+    pickupGuidance: guidance.pickupGuidance,
+    routeName: guidance.routeName,
+    shopDomain: guidance.shopDomain,
+    timezone: guidance.timezone
   };
 }
 
