@@ -20,9 +20,9 @@ Manual or cron-style retention cleanup uses:
 npm run driver:proof-media:cleanup
 ```
 
-The command does not start the HTTP server. It connects Prisma, applies `DRIVER_PROOF_MEDIA_RETENTION_DAYS`, runs the proof-media repository cleanup, disconnects Prisma, and prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, and `deletedAt`.
+The command does not start the HTTP server. It connects Prisma, applies `DRIVER_PROOF_MEDIA_RETENTION_DAYS`, runs the proof-media repository cleanup, records a sanitized `RetentionJobRun`, disconnects Prisma, and prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, `deletedAt`, and `evidenceRecorded`.
 
-`runDriverProofMediaRetentionCleanup()` accepts an optional `DriverProofMediaCleanupMonitor`. The monitor receives sanitized cleanup-run evidence: scanned count, deleted count, missing file count, `uploadedBefore`, `deletedAt`, retention days, and optional batch limit. The monitor payload intentionally excludes media ids, storage keys, file bytes, customer addresses, and proof images. A production scheduler can wire this hook to a private job/evidence backend, but deployed scheduler evidence still remains a release blocker.
+`runDriverProofMediaRetentionCleanup()` accepts an optional `DriverProofMediaCleanupMonitor`. The monitor receives sanitized cleanup-run evidence: scanned count, deleted count, missing file count, `uploadedBefore`, `deletedAt`, retention days, and optional batch limit. The monitor payload intentionally excludes media ids, storage keys, file bytes, customer addresses, coordinates, phone numbers, and proof images. The default cleanup command wires `PrismaDriverProofMediaCleanupMonitor`, which creates a `RetentionJobRun` row with `jobName=driver-proof-media-retention-cleanup`, `status=SUCCEEDED`, sanitized counts, cutoff timestamps, and optional private `DRIVER_PROOF_MEDIA_CLEANUP_EVIDENCE_REF`. A production scheduler can run the command and reference private job/log evidence through that env value, but deployed scheduler evidence still remains a release blocker.
 
 ## GET `/driver/proof-media/:mediaId/access`
 
@@ -165,7 +165,7 @@ The repository checks all of the following before writing bytes or metadata:
 - The scan monitor hook records clean/rejected scanner outcome metadata without proof file bytes. Private monitoring backends may receive the scanner rejection reason, but public issue/PR/store evidence should use sanitized references only.
 - `PrismaDriverProofMediaRepository.deleteExpiredProofMedia()` selects undeleted metadata older than the configured cutoff, removes stored bytes through the configured storage backend, and marks rows with `deletedAt`.
 - Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
-- The cleanup monitor hook records cleanup run counts and cutoffs without media ids, storage keys, or proof bytes.
+- The cleanup monitor hook records cleanup run counts and cutoffs in `RetentionJobRun` without media ids, storage keys, coordinates, customer data, or proof bytes.
 - Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
 - `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled cleanup. The default runtime backend is local filesystem storage.
 - Object storage backend wiring, production signed URL credentials/evidence, production virus/malware scanner deployment evidence, production scanner monitoring/alerting backend evidence, deployed cleanup scheduler evidence, and private evidence storage remain follow-up hardening items.

@@ -37,6 +37,7 @@ describe('Prisma schema', () => {
       'DriverSession',
       'DriverConsentRecord',
       'DriverProofMedia',
+      'RetentionJobRun',
       'Vehicle',
       'DriverEvent'
     ]) {
@@ -53,6 +54,12 @@ describe('Prisma schema', () => {
     expect(schema).toMatch(/@@unique\(\[driverId, consentType, consentVersion\]/);
     expect(schema).toMatch(/@@unique\(\[shopId, storageKey\]/);
     expect(schema).toMatch(/@@index\(\[shopId, routePlanId, deliveryStopId, uploadedAt\]/);
+    expect(schema).toContain('enum RetentionJobRunStatus');
+    expect(schema).toContain('jobName');
+    expect(schema).toContain('scannedCount');
+    expect(schema).toContain('deletedCount');
+    expect(schema).toContain('missingFilesCount');
+    expect(schema).toMatch(/@@index\(\[jobName, finishedAt\]/);
     expect(schema).toMatch(/@@unique\(\[driverId, clientEventId\]/);
   });
 
