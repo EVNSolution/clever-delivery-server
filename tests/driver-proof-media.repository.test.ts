@@ -171,6 +171,56 @@ describe('PrismaDriverProofMediaRepository', () => {
     ]);
   });
 
+  test('rejects scanner-blocked proof media before writing bytes or metadata', async () => {
+    const writes: { fileBytes: Buffer; storageKey: string }[] = [];
+    const scannerCalls: { contentType: string; fileBytes: Buffer; sha256: string; storageKey: string }[] = [];
+    const storage: DriverProofMediaStorageBackend = {
+      remove: () => Promise.resolve('removed'),
+      write: (input) => {
+        writes.push(input);
+        return Promise.resolve();
+      }
+    };
+    const { prisma } = createPrismaHarness();
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, {
+      createMediaId: () => '11111111-1111-4111-8111-111111111111',
+      now: () => now,
+      scanner: {
+        scanProofMedia: (input: { contentType: string; fileBytes: Buffer; sha256: string; storageKey: string }) => {
+          scannerCalls.push(input);
+          return Promise.resolve({ reason: 'malware signature fixture', status: 'rejected' });
+        }
+      },
+      storage
+    } as never);
+    const sanitizedBytes = jpegWithoutExifBytes();
+    const sanitizedSha256 = sha256Hex(sanitizedBytes);
+
+    await expect(
+      repository.storeProofMedia({
+        contentType: 'image/jpeg',
+        deliveryStopId: 'stop-id',
+        driverId: 'driver-id',
+        fileBytes: jpegWithExifBytes(),
+        filename: 'proof-with-exif.jpg',
+        routePlanId: 'route-plan-id',
+        shopDomain: 'tomatono.myshopify.com',
+        source: 'camera'
+      })
+    ).rejects.toThrow('Proof media rejected by malware scan');
+
+    expect(scannerCalls).toEqual([
+      {
+        contentType: 'image/jpeg',
+        fileBytes: sanitizedBytes,
+        sha256: sanitizedSha256,
+        storageKey: 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/11111111-1111-4111-8111-111111111111.jpg'
+      }
+    ]);
+    expect(writes).toEqual([]);
+    expect(prisma.driverProofMedia.create).not.toHaveBeenCalled();
+  });
+
   test('keeps JPEG proof media without EXIF metadata unchanged', async () => {
     const storageRoot = await mkdtemp(join(tmpdir(), 'clever-proof-media-'));
     const { prisma } = createPrismaHarness();

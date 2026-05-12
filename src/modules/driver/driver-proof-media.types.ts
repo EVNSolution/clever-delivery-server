@@ -22,6 +22,21 @@ export type StoreDriverProofMediaResult = {
   uploadedAt: string;
 };
 
+export type DriverProofMediaScanInput = {
+  contentType: string;
+  fileBytes: Buffer;
+  sha256: string;
+  storageKey: string;
+};
+
+export type DriverProofMediaScanResult =
+  | { status: 'clean' }
+  | { reason: string; status: 'rejected' };
+
+export type DriverProofMediaScanner = {
+  scanProofMedia(input: DriverProofMediaScanInput): Promise<DriverProofMediaScanResult>;
+};
+
 export type DriverProofMediaServiceContract = {
   storeProofMedia(input: StoreDriverProofMediaInput): Promise<StoreDriverProofMediaResult>;
 };
@@ -30,5 +45,15 @@ export class DriverProofMediaScopeError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'DriverProofMediaScopeError';
+  }
+}
+
+export class DriverProofMediaScanRejectedError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(`Proof media rejected by malware scan: ${reason}`);
+    this.name = 'DriverProofMediaScanRejectedError';
+    this.reason = reason;
   }
 }

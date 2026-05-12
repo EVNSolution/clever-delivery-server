@@ -10,5 +10,8 @@ coverage/
 .omx/
 .cache/
 .npm/
+.eslintcache
+.vitest/
+tmp/
 *.tsbuildinfo
 var/driver-proof-media/

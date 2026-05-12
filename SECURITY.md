@@ -15,7 +15,7 @@ Security review for this server includes:
 - Shopify webhook HMAC validation and idempotent receipt recording
 - tenant/company, route, stop, and assigned-driver authorization boundaries
 - driver route-access, consent, assigned-route, event, and proof-media APIs
-- proof-media storage keys, retention, deletion, retrieval access, and malware-scanning controls
+- proof-media storage keys, retention, deletion, retrieval access, scan-hook behavior, and malware-scanner deployment controls
 - PostgreSQL schema changes, migrations, backups, and runtime deployment configuration
 - environment variables, secrets, logs, and operational evidence handling
 
@@ -30,7 +30,7 @@ Security review for this server includes:
 - `.env*` files, production secrets, database dumps, local proof-media files, build outputs, and logs must remain ignored unless a sanitized example is explicitly intended for git.
 - Public API responses must not leak Shopify Admin tokens, driver JWT secrets, unrelated tenant data, raw proof-media paths, or internal storage roots.
 - Driver data access must remain scoped by shop/company, assigned driver, route plan, and stop membership before disclosing route details or accepting proof evidence.
-- Proof-media production hardening must address object storage, signed retrieval/access, malware scanning, deletion, and retention before release use.
+- Proof-media production hardening must address object storage, signed retrieval/access, deployed malware scanner evidence, deletion, and retention before release use.
 
 ## Evidence handling
 

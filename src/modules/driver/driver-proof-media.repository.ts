@@ -3,8 +3,12 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 
-import { DriverProofMediaScopeError } from './driver-proof-media.types.js';
+import {
+  DriverProofMediaScanRejectedError,
+  DriverProofMediaScopeError
+} from './driver-proof-media.types.js';
 import type {
+  DriverProofMediaScanner,
   DriverProofMediaSource,
   StoreDriverProofMediaInput,
   StoreDriverProofMediaResult
@@ -30,6 +34,7 @@ export type DriverProofMediaStorageBackend = {
 type DriverProofMediaRepositoryOptions = {
   createMediaId?: () => string;
   now?: () => Date;
+  scanner?: DriverProofMediaScanner;
   storage?: DriverProofMediaStorageBackend;
   storageRoot?: string;
 };
@@ -49,6 +54,7 @@ export type DeleteExpiredProofMediaResult = {
 export class PrismaDriverProofMediaRepository {
   private readonly createMediaId: () => string;
   private readonly now: () => Date;
+  private readonly scanner: DriverProofMediaScanner | undefined;
   private readonly storage: DriverProofMediaStorageBackend;
 
   constructor(
@@ -57,6 +63,7 @@ export class PrismaDriverProofMediaRepository {
   ) {
     this.createMediaId = options.createMediaId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+    this.scanner = options.scanner;
     this.storage = options.storage ?? createLocalDriverProofMediaStorage(requireStorageRoot(options.storageRoot));
   }
 
@@ -107,6 +114,16 @@ export class PrismaDriverProofMediaRepository {
       routePlanId: input.routePlanId,
       shopDomain
     });
+    const scanResult = await this.scanner?.scanProofMedia({
+      contentType: input.contentType,
+      fileBytes: storedFileBytes,
+      sha256,
+      storageKey
+    });
+    if (scanResult?.status === 'rejected') {
+      throw new DriverProofMediaScanRejectedError(scanResult.reason);
+    }
+
     await this.storage.write({ fileBytes: storedFileBytes, storageKey });
 
     await this.prisma.driverProofMedia.create({

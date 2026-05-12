@@ -3,9 +3,14 @@
 .omx
 node_modules
 dist
+build
 coverage
 .env
 .env.*
 !.env.example
 *.log
 .DS_Store
+.cache
+.npm
+*.tsbuildinfo
+var/driver-proof-media

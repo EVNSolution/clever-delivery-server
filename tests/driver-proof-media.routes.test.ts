@@ -2,7 +2,10 @@ import { createHmac } from 'node:crypto';
 import { describe, expect, test, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
-import { DriverProofMediaScopeError } from '../src/modules/driver/driver-proof-media.types.js';
+import {
+  DriverProofMediaScanRejectedError,
+  DriverProofMediaScopeError
+} from '../src/modules/driver/driver-proof-media.types.js';
 import type { DriverApiDependencies } from '../src/routes/driver-events.routes.js';
 
 const secret = 'driver-secret';
@@ -124,6 +127,31 @@ describe('Driver proof media route', () => {
     }
   });
 
+  test('maps scanner-rejected proof media to a safe unprocessable response', async () => {
+    const { app, storeProofMedia } = await createAppHarness({ rejectScan: true });
+
+    try {
+      const response = await app.inject({
+        ...multipartUploadRequest(),
+        headers: {
+          ...multipartUploadRequest().headers,
+          authorization: `Bearer ${driverToken()}`
+        },
+        method: 'POST',
+        url: '/driver/proof-media'
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'PROOF_MEDIA_REJECTED', message: 'Proof media rejected by safety scan' }
+      });
+      expect(storeProofMedia).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
   test('rejects unsupported proof media sources before storage', async () => {
     const { app, storeProofMedia } = await createAppHarness();
 
@@ -176,24 +204,29 @@ type ProofMediaDependencies = DriverApiDependencies & {
   };
 };
 
-async function createAppHarness(input: { rejectStorage?: boolean } = {}): Promise<{
+async function createAppHarness(input: { rejectScan?: boolean; rejectStorage?: boolean } = {}): Promise<{
   app: Awaited<ReturnType<typeof buildApp>>;
   storeProofMedia: ReturnType<typeof vi.fn<StoreProofMedia>>;
 }> {
-  const storeProofMedia = vi.fn<StoreProofMedia>(() =>
-    input.rejectStorage === true
-      ? Promise.reject(new DriverProofMediaScopeError('Route plan not assigned to driver'))
-      : Promise.resolve({
-          contentType: 'image/jpeg',
-          kind: 'photo',
-          mediaId: 'proof-media-id',
-          sha256: 'sha256-fixture',
-          sizeBytes: uploadBytes.byteLength,
-          source: 'camera',
-          storageKey: 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/proof-media-id.jpg',
-          uploadedAt: '2026-05-12T10:00:00.000Z'
-        })
-  );
+  const storeProofMedia = vi.fn<StoreProofMedia>(() => {
+    if (input.rejectStorage === true) {
+      return Promise.reject(new DriverProofMediaScopeError('Route plan not assigned to driver'));
+    }
+    if (input.rejectScan === true) {
+      return Promise.reject(new DriverProofMediaScanRejectedError('eicar-test-signature'));
+    }
+
+    return Promise.resolve({
+      contentType: 'image/jpeg',
+      kind: 'photo',
+      mediaId: 'proof-media-id',
+      sha256: 'sha256-fixture',
+      sizeBytes: uploadBytes.byteLength,
+      source: 'camera',
+      storageKey: 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/proof-media-id.jpg',
+      uploadedAt: '2026-05-12T10:00:00.000Z'
+    });
+  });
 
   const dependencies: ProofMediaDependencies = {
     driverEventService: {
