@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, resolve, sep } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 
 import { DriverProofMediaScopeError } from './driver-proof-media.types.js';
@@ -21,6 +21,18 @@ type DriverProofMediaRepositoryOptions = {
   createMediaId?: () => string;
   now?: () => Date;
   storageRoot: string;
+};
+
+export type DeleteExpiredProofMediaInput = {
+  deletedAt?: Date;
+  limit?: number;
+  uploadedBefore: Date;
+};
+
+export type DeleteExpiredProofMediaResult = {
+  deleted: number;
+  missingFiles: number;
+  scanned: number;
 };
 
 export class PrismaDriverProofMediaRepository {
@@ -112,12 +124,71 @@ export class PrismaDriverProofMediaRepository {
       uploadedAt: uploadedAt.toISOString()
     };
   }
+
+  async deleteExpiredProofMedia(input: DeleteExpiredProofMediaInput): Promise<DeleteExpiredProofMediaResult> {
+    const deletedAt = input.deletedAt ?? this.now();
+    const expiredMedia = await this.prisma.driverProofMedia.findMany({
+      orderBy: { uploadedAt: 'asc' },
+      take: input.limit ?? 100,
+      where: {
+        deletedAt: null,
+        uploadedAt: { lt: input.uploadedBefore }
+      }
+    });
+
+    let deleted = 0;
+    let missingFiles = 0;
+
+    for (const media of expiredMedia) {
+      const removeResult = await removeStoredFile(this.options.storageRoot, media.storageKey);
+      if (removeResult === 'missing') {
+        missingFiles += 1;
+      }
+
+      await this.prisma.driverProofMedia.update({
+        data: { deletedAt },
+        where: { id: media.id }
+      });
+      deleted += 1;
+    }
+
+    return {
+      deleted,
+      missingFiles,
+      scanned: expiredMedia.length
+    };
+  }
 }
 
 async function writeStoredFile(storageRoot: string, storageKey: string, fileBytes: Buffer): Promise<void> {
-  const target = join(storageRoot, ...storageKey.split('/'));
+  const target = resolveStoredFilePath(storageRoot, storageKey);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, fileBytes, { flag: 'wx' });
+}
+
+async function removeStoredFile(storageRoot: string, storageKey: string): Promise<'missing' | 'removed'> {
+  const target = resolveStoredFilePath(storageRoot, storageKey);
+  try {
+    await rm(target);
+    return 'removed';
+  } catch (error) {
+    if (isErrnoException(error) && error.code === 'ENOENT') {
+      return 'missing';
+    }
+
+    throw error;
+  }
+}
+
+function resolveStoredFilePath(storageRoot: string, storageKey: string): string {
+  const root = resolve(storageRoot);
+  const target = resolve(root, ...storageKey.split('/'));
+
+  if (target !== root && target.startsWith(`${root}${sep}`)) {
+    return target;
+  }
+
+  throw new Error('Proof media storage key escapes storage root');
 }
 
 function buildStorageKey(input: {
@@ -177,4 +248,8 @@ function normalizeShopDomain(value: string): string {
   }
 
   return withoutProtocol;
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error;
 }

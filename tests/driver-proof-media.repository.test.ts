@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, test, vi } from 'vitest';
@@ -103,16 +103,114 @@ describe('PrismaDriverProofMediaRepository', () => {
     expect(prisma.routePlanStop.findUnique).not.toHaveBeenCalled();
     expect(prisma.driverProofMedia.create).not.toHaveBeenCalled();
   });
+
+  test('deletes expired proof media bytes and marks metadata deleted', async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), 'clever-proof-media-'));
+    const storageKey = 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/media-id.jpg';
+    const storedPath = join(storageRoot, ...storageKey.split('/'));
+    await mkdir(join(storageRoot, 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id'), { recursive: true });
+    await writeFile(storedPath, uploadBytes);
+    const deletedAt = new Date('2026-06-12T00:00:00.000Z');
+    const uploadedBefore = new Date('2026-06-01T00:00:00.000Z');
+    const { prisma } = createPrismaHarness({
+      expiredProofMedia: [
+        {
+          id: 'media-id',
+          storageKey,
+          uploadedAt: new Date('2026-05-12T10:00:00.000Z')
+        }
+      ]
+    });
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, { storageRoot });
+
+    const result = await repository.deleteExpiredProofMedia({ deletedAt, uploadedBefore });
+
+    expect(prisma.driverProofMedia.findMany).toHaveBeenCalledWith({
+      orderBy: { uploadedAt: 'asc' },
+      take: 100,
+      where: {
+        deletedAt: null,
+        uploadedAt: { lt: uploadedBefore }
+      }
+    });
+    expect(prisma.driverProofMedia.update).toHaveBeenCalledWith({
+      data: { deletedAt },
+      where: { id: 'media-id' }
+    });
+    await expect(readFile(storedPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(result).toEqual({
+      deleted: 1,
+      missingFiles: 0,
+      scanned: 1
+    });
+  });
+
+  test('marks missing expired proof media as deleted idempotently', async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), 'clever-proof-media-'));
+    const deletedAt = new Date('2026-06-12T00:00:00.000Z');
+    const { prisma } = createPrismaHarness({
+      expiredProofMedia: [
+        {
+          id: 'missing-media-id',
+          storageKey: 'driver-proof/tomatono.myshopify.com/route-plan-id/stop-id/missing-media-id.jpg',
+          uploadedAt: new Date('2026-05-12T10:00:00.000Z')
+        }
+      ]
+    });
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, { storageRoot });
+
+    const result = await repository.deleteExpiredProofMedia({
+      deletedAt,
+      uploadedBefore: new Date('2026-06-01T00:00:00.000Z')
+    });
+
+    expect(prisma.driverProofMedia.update).toHaveBeenCalledWith({
+      data: { deletedAt },
+      where: { id: 'missing-media-id' }
+    });
+    expect(result).toEqual({
+      deleted: 1,
+      missingFiles: 1,
+      scanned: 1
+    });
+  });
+
+  test('rejects expired proof media storage keys outside the configured storage root', async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), 'clever-proof-media-'));
+    const { prisma } = createPrismaHarness({
+      expiredProofMedia: [
+        {
+          id: 'unsafe-media-id',
+          storageKey: '../outside-root.jpg',
+          uploadedAt: new Date('2026-05-12T10:00:00.000Z')
+        }
+      ]
+    });
+    const repository = new PrismaDriverProofMediaRepository(prisma as never, { storageRoot });
+
+    await expect(
+      repository.deleteExpiredProofMedia({ uploadedBefore: new Date('2026-06-01T00:00:00.000Z') })
+    ).rejects.toThrow('Proof media storage key escapes storage root');
+    expect(prisma.driverProofMedia.update).not.toHaveBeenCalled();
+  });
 });
 
-function createPrismaHarness(input: { routePlan?: { id: string } | null; routePlanStop?: { id: string } | null } = {}) {
+function createPrismaHarness(input: {
+  expiredProofMedia?: { id: string; storageKey: string; uploadedAt: Date }[];
+  routePlan?: { id: string } | null;
+  routePlanStop?: { id: string } | null;
+} = {}) {
   return {
     prisma: {
       driver: {
         findUnique: vi.fn(() => Promise.resolve({ id: 'driver-id', shopId: 'shop-id' }))
       },
       driverProofMedia: {
-        create: vi.fn(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...data }))
+        create: vi.fn(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...data })),
+        findMany: vi.fn(() => Promise.resolve(input.expiredProofMedia ?? [])),
+        update: vi.fn(({ data, where }: { data: Record<string, unknown>; where: Record<string, unknown> }) =>
+          Promise.resolve({ ...where, ...data })
+        )
       },
       routePlan: {
         findFirst: vi.fn(() => Promise.resolve(input.routePlan === undefined ? { id: 'route-plan-id' } : input.routePlan))
