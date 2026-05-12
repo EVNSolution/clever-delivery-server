@@ -8,6 +8,7 @@ import { PrismaDriverRouteAccessRepository } from './driver-route-access.reposit
 import type { DriverApiDependencies } from '../../routes/driver-events.routes.js';
 
 export const DEFAULT_DRIVER_PROOF_MEDIA_RETENTION_DAYS = 180;
+export const DEFAULT_DRIVER_PROOF_MEDIA_STORAGE_DIR = 'var/driver-proof-media';
 
 export type DriverApiRuntimeEnv = Partial<Record<
   'DRIVER_PROOF_MEDIA_RETENTION_DAYS' | 'DRIVER_PROOF_MEDIA_STORAGE_DIR' | 'JWT_SECRET',
@@ -37,10 +38,14 @@ export function loadDriverApiDependencies(
     driverEventService: new PrismaDriverEventRepository(input.prisma),
     jwtSecret,
     proofMediaService: new PrismaDriverProofMediaRepository(input.prisma, {
-      storageRoot: readOptional(input.env.DRIVER_PROOF_MEDIA_STORAGE_DIR) ?? 'var/driver-proof-media'
+      storageRoot: loadDriverProofMediaStorageRoot(input.env)
     }),
     routeAccessService: new PrismaDriverRouteAccessRepository(input.prisma)
   };
+}
+
+export function loadDriverProofMediaStorageRoot(env: DriverApiRuntimeEnv): string {
+  return readOptional(env.DRIVER_PROOF_MEDIA_STORAGE_DIR) ?? DEFAULT_DRIVER_PROOF_MEDIA_STORAGE_DIR;
 }
 
 export function loadDriverProofMediaRetentionPolicy(env: DriverApiRuntimeEnv): DriverProofMediaRetentionPolicy {
