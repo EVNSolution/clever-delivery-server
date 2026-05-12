@@ -29,12 +29,14 @@ Do not commit `.env*` files other than `.env.example`.
 
 ```bash
 npm run check:workspace
+npm run driver:proof-media:evidence:seed
+npm run driver:proof-media:evidence:verify -- <private-manifest-path>
 npm run build
 npm audit --audit-level=moderate
 git diff --check
 ```
 
-`npm run check:workspace` runs Prisma generate/validate, lint, typecheck, and the Vitest suite.
+`npm run check:workspace` runs Prisma generate/validate, lint, typecheck, and the Vitest suite. Only run `npm run driver:proof-media:evidence:verify -- <private-manifest-path>` against a local copy of a completed private manifest; keep the manifest itself outside git.
 
 ## Privacy and safety review points
 
@@ -46,7 +48,7 @@ git diff --check
 
 ## Generated and sensitive files
 
-Generated build outputs, local env files, local runtime state, dependency folders, logs, coverage, and proof-media storage directories must stay untracked. Review `.gitignore` before adding new tooling, generated clients, database dumps, or deployment artifacts.
+Generated build outputs, local env files, local runtime state, dependency folders, logs, coverage, proof-media storage directories, completed production evidence manifests, and private evidence artifacts must stay untracked. Review `.gitignore`, `.dockerignore`, `.gitattributes`, and `.editorconfig` before adding new tooling, generated clients, database dumps, or deployment artifacts.
 
 ## Repository baseline files
 

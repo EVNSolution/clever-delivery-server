@@ -46,6 +46,8 @@ npm run check:workspace
 npm run lint
 npm run typecheck
 npm run test
+npm run driver:proof-media:evidence:seed
+npm run driver:proof-media:evidence:verify -- /path/to/private/proof-media-production-evidence-manifest-<date>-<sha>.md
 npm run build
 ```
 
@@ -65,8 +67,9 @@ See `docs/deployment/ec2-ebs.md` for EC2/EBS deployment, backup/restore, and RDS
 - Product scope and release constraints: `docs/project-brief.md`
 - Agent workflow rules: `AGENTS.md`
 - Repository hygiene: `.gitignore`, `.dockerignore`, `.editorconfig`, and `.gitattributes`
-  keep local env files, proof-media runtime data, DB dumps, private evidence, and
-  generated outputs out of git/build contexts while normalizing source text to LF.
+  keep local env files, proof-media runtime data, DB dumps, private evidence,
+  completed proof-media evidence manifests, and generated outputs out of
+  git/build contexts while normalizing source text to LF.
 
 ## Database schema
 
@@ -265,6 +268,17 @@ npm run driver:proof-media:cleanup
 The evidence seed prints a non-secret source/runtime audit for the private
 release evidence workspace. It omits bucket names, endpoints, access keys,
 bearer tokens, storage keys, proof bytes, and completed evidence references.
+After the private manifest is filled, validate a local working copy before
+release approval:
+
+```bash
+npm run driver:proof-media:evidence:verify -- /path/to/private/proof-media-production-evidence-manifest-<date>-<sha>.md
+```
+
+The verifier rejects remaining `pending` placeholders, missing storage/signed
+access, scanner/monitoring, cleanup scheduler, or private evidence approval
+rows, a non-`approved` production proof-media decision, and common sensitive or
+private artifact patterns. It does not replace private owner evidence review.
 
 The cleanup command prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, `deletedAt`, and `evidenceRecorded`. It wires a cleanup monitor that creates a `RetentionJobRun` row with sanitized counts, cutoff, run time, retention window, batch limit, and optional private `DRIVER_PROOF_MEDIA_CLEANUP_EVIDENCE_REF`. The row intentionally excludes media ids, storage keys, proof bytes, customer data, and coordinates. Deployed scheduler evidence is still required before release.
 

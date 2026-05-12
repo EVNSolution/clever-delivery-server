@@ -21,10 +21,15 @@ Caddyfile.example text eol=lf
 *.png binary
 *.jpg binary
 *.jpeg binary
+*.heic binary
+*.heif binary
 *.gif binary
 *.webp binary
 *.mp4 binary
 *.mov binary
+*.m4v binary
+*.webm binary
+*.pdf binary
 *.zip binary
 *.tar binary
 *.tgz binary
@@ -37,3 +42,4 @@ Caddyfile.example text eol=lf
 *.key binary
 *.crt binary
 *.p12 binary
+*.p8 binary
