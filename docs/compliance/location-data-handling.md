@@ -138,7 +138,7 @@ The codebase can support technical controls, but the service plan also needs man
 
 - `DriverConsentRecord` exists for notice acceptance evidence and `DriverProofMedia` exists for scoped proof upload metadata; no dedicated `LocationAccessLog` / `LocationUsageRecord` / `LocationPermissionAudit` models yet.
 - Proof-media read access is scoped through the bearer-token shop/driver boundary and a short-lived storage backend read-access contract; the default local backend does not expose public file URLs, and production object-storage backend wiring/evidence remains open.
-- Proof-media retention cleanup support exists for local stored bytes and `deletedAt` metadata marking through the driver proof-media repository, with `npm run driver:proof-media:cleanup` available for manual or cron-style execution; no deployed scheduler or `RetentionJobRun` persistence exists yet.
+- Proof-media retention cleanup support exists for local stored bytes and `deletedAt` metadata marking through the driver proof-media repository, with `npm run driver:proof-media:cleanup` available for manual or cron-style execution and a sanitized cleanup-run monitor hook available for private scheduler evidence; no deployed scheduler or `RetentionJobRun` persistence exists yet.
 - Proof-media scanner rejection and scan-outcome monitor hooks exist before byte/metadata persistence, but production scanner backend selection, monitor/alert backend wiring, deployment evidence, and monitoring/alerting evidence are not complete yet.
 - No 5-year access-right grant/change/revoke audit table yet.
 - Raw payloads can still duplicate coordinates from Shopify/app snapshots.

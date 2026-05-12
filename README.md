@@ -258,7 +258,7 @@ Manual or cron-style cleanup command:
 npm run driver:proof-media:cleanup
 ```
 
-The command prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, and `deletedAt`.
+The command prints JSON with `scanned`, `deleted`, `missingFiles`, `uploadedBefore`, and `deletedAt`. `runDriverProofMediaRetentionCleanup()` also accepts an optional cleanup monitor hook so production schedulers can record sanitized run evidence (`scanned`, `deleted`, missing file count, cutoff, run time, retention window, and batch limit) without media ids, storage keys, or proof bytes. Deployed scheduler evidence is still required before release.
 
 See `docs/api/driver-proof-media.md` for the request/response contract and production storage/retention caveats.
 

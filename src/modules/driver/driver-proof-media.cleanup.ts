@@ -15,6 +15,15 @@ export type DriverProofMediaCleanupResult = DeleteExpiredProofMediaResult & {
   uploadedBefore: Date;
 };
 
+export type DriverProofMediaCleanupMonitorInput = DriverProofMediaCleanupResult & {
+  limit: number | null;
+  retentionDays: number;
+};
+
+export type DriverProofMediaCleanupMonitor = {
+  recordProofMediaCleanup(input: DriverProofMediaCleanupMonitorInput): Promise<void>;
+};
+
 export function calculateProofMediaCleanupCutoff(input: {
   now: Date;
   retentionDays: number;
@@ -23,6 +32,7 @@ export function calculateProofMediaCleanupCutoff(input: {
 }
 
 export async function runDriverProofMediaRetentionCleanup(input: {
+  cleanupMonitor?: DriverProofMediaCleanupMonitor;
   limit?: number;
   now?: () => Date;
   proofMediaRepository: DriverProofMediaCleanupRepository;
@@ -39,9 +49,17 @@ export async function runDriverProofMediaRetentionCleanup(input: {
     uploadedBefore
   });
 
-  return {
+  const cleanupResult = {
     ...result,
     deletedAt,
     uploadedBefore
   };
+
+  await input.cleanupMonitor?.recordProofMediaCleanup({
+    ...cleanupResult,
+    limit: input.limit ?? null,
+    retentionDays: input.retentionPolicy.retentionDays
+  });
+
+  return cleanupResult;
 }
