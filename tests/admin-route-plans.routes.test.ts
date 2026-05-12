@@ -5,7 +5,10 @@ import {
   RoutePlanOrderAlreadyPlannedError,
   RoutePlanStopUpdateInvalidError
 } from '../src/modules/route-plans/route-plan.types.js';
-import type { RoutePlanDetailStop } from '../src/modules/route-plans/route-plan.types.js';
+import type {
+  RoutePlanDetailStop,
+  RoutePlanRouteStopPoint
+} from '../src/modules/route-plans/route-plan.types.js';
 import type { AdminRoutePlanDependencies } from '../src/routes/admin-route-plans.routes.js';
 
 const routePlanSummary = {
@@ -280,6 +283,7 @@ describe('Admin route plan routes', () => {
         data: {
           routePlan: routePlanSummary,
           routeGeometry: null,
+          routeStopPoints: routePlanStopPoints(),
           stops: [
             expect.objectContaining({ orderName: '#1035', sequence: 1 }),
             expect.objectContaining({ orderName: '#1036', sequence: 2 })
@@ -407,6 +411,7 @@ describe('Admin route plan routes', () => {
         data: {
           routePlan: routePlanSummary,
           routeGeometry: null,
+          routeStopPoints: routePlanStopPoints(),
           stops: [
             routePlanStop({ orderName: '#1035', sequence: 1 }),
             routePlanStop({ orderName: '#1036', sequence: 2 })
@@ -635,6 +640,7 @@ function createDependencyHarness(): {
     Promise.resolve({
       routePlan: routePlanSummary,
       routeGeometry: null,
+      routeStopPoints: routePlanStopPoints(),
       stops: [
         routePlanStop({ orderName: '#1035', sequence: 1 }),
         routePlanStop({ orderName: '#1036', sequence: 2 })
@@ -650,6 +656,7 @@ function createDependencyHarness(): {
     Promise.resolve({
       routePlan: routePlanSummary,
       routeGeometry: null,
+      routeStopPoints: routePlanStopPoints(),
       stops: [
         routePlanStop({ orderName: '#1035', sequence: 1 }),
         routePlanStop({ orderName: '#1036', sequence: 2 })
@@ -773,4 +780,27 @@ function routePlanStop(input: { orderName: string; sequence: number }): RoutePla
     shopifyOrderGid: `gid://shopify/Order/${input.sequence}`,
     status: 'PENDING'
   };
+}
+
+function routePlanStopPoints(): RoutePlanRouteStopPoint[] {
+  return [
+    {
+      deliveryStopId: 'stop-1',
+      inputCoordinates: [-79.644, 43.589],
+      name: 'Duke of York Boulevard',
+      sequence: 1,
+      shopifyOrderGid: 'gid://shopify/Order/1',
+      snapDistanceMeters: 54.16,
+      snappedCoordinates: [-79.643565, 43.589371]
+    },
+    {
+      deliveryStopId: 'stop-2',
+      inputCoordinates: [-79.644, 43.589],
+      name: 'Duke of York Boulevard',
+      sequence: 2,
+      shopifyOrderGid: 'gid://shopify/Order/2',
+      snapDistanceMeters: 22.1,
+      snappedCoordinates: [-79.6437, 43.5895]
+    }
+  ];
 }

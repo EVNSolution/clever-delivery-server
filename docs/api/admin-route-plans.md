@@ -151,6 +151,24 @@ Response `200`:
       "createdAt": "2026-05-07T12:30:00.000Z",
       "updatedAt": "2026-05-07T12:30:00.000Z"
     },
+    "routeGeometry": {
+      "type": "LineString",
+      "coordinates": [
+        [-79.3832, 43.6532],
+        [-79.643565, 43.589371]
+      ]
+    },
+    "routeStopPoints": [
+      {
+        "deliveryStopId": "uuid",
+        "shopifyOrderGid": "gid://shopify/Order/123",
+        "sequence": 1,
+        "inputCoordinates": [-79.644, 43.589],
+        "snappedCoordinates": [-79.643565, 43.589371],
+        "snapDistanceMeters": 54.16,
+        "name": "Duke of York Boulevard"
+      }
+    ],
     "stops": [
       {
         "sequence": 1,
@@ -182,8 +200,43 @@ Response `200`:
 }
 ```
 
+`routeGeometry` is the OSRM route `routes[0].geometry` GeoJSON LineString.
+`routeStopPoints` is additive metadata for the ordered stops. It excludes the
+depot waypoint and maps OSRM waypoint data back to route stops by stop sequence.
+If OSRM is unavailable, the route detail still succeeds with
+`routeGeometry: null` and `routeStopPoints: []`. If an individual waypoint is
+missing or malformed, that stop keeps its `inputCoordinates` and receives
+`snappedCoordinates: null`.
+
+## PATCH `/admin/route-plans/:routePlanId/stops`
+
+Replaces the route plan's stop links with the provided ordered Shopify orders
+for the authenticated shop, then returns the same detail shape as
+`GET /admin/route-plans/:routePlanId`, including `routeGeometry` and
+`routeStopPoints`.
+
+Request:
+
+```json
+{
+  "stops": [
+    {
+      "deliveryStopId": "optional-existing-delivery-stop-id-or-null",
+      "shopifyOrderGid": "gid://shopify/Order/123",
+      "sequence": 1
+    }
+  ]
+}
+```
+
+The server validates that all referenced orders belong to the token shop, share
+the route delivery date, are not already assigned to another route plan, and do
+not contain duplicate `shopifyOrderGid` values.
+
 Common errors:
 
 - `401` with `UNAUTHORIZED`: missing or invalid Shopify session token.
 - `400` with `BAD_REQUEST`: invalid create payload.
 - `404` with `NOT_FOUND`: route plan does not exist for the token shop.
+- `409` with `ROUTE_ORDER_ALREADY_PLANNED`: an order is already assigned to a
+  different route plan.

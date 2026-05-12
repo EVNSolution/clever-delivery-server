@@ -224,6 +224,7 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
     return {
       routePlan: toRoutePlanSummary(record),
       routeGeometry: null,
+      routeStopPoints: [],
       stops: [...(record.routeStops ?? [])]
         .sort((left, right) => left.sequence - right.sequence)
         .map((routeStop) => toRoutePlanDetailStop(routeStop))

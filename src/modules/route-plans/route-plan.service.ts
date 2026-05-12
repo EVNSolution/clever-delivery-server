@@ -1,14 +1,14 @@
 import type {
   CreateRoutePlanInput,
   RoutePlanDetail,
-  RoutePlanRouteGeometry,
+  RoutePlanRouteResult,
   RoutePlanService,
   RoutePlanSummary,
   UpdateRoutePlanStopsInput
 } from './route-plan.types.js';
 
 export type RouteGeometryProvider = {
-  buildRouteGeometry(input: RoutePlanDetail): Promise<RoutePlanRouteGeometry | null>;
+  buildRoute(input: RoutePlanDetail): Promise<RoutePlanRouteResult>;
 };
 
 export type RoutePlanRepository = {
@@ -79,14 +79,17 @@ export class RoutePlanAdminService implements RoutePlanService {
     }
 
     try {
+      const routeResult = await this.routeGeometryProvider.buildRoute(detail);
       return {
         ...detail,
-        routeGeometry: await this.routeGeometryProvider.buildRouteGeometry(detail)
+        routeGeometry: routeResult.routeGeometry,
+        routeStopPoints: routeResult.routeStopPoints
       };
     } catch {
       return {
         ...detail,
-        routeGeometry: null
+        routeGeometry: null,
+        routeStopPoints: []
       };
     }
   }
