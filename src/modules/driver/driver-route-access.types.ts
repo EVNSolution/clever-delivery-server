@@ -16,6 +16,10 @@ export type DriverRouteAccessCompanyGuidance = {
 
 export type DriverRouteAccessLookupResult =
   | {
+      driverContext: {
+        driverId: string;
+        shopDomain: string;
+      };
       status: 'INVITED';
       routeAccess: {
         nextState: 'consent_required';

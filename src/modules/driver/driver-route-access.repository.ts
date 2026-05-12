@@ -73,6 +73,10 @@ function mapRoutePlan(
   }
 
   return {
+    driverContext: {
+      driverId: routePlan.driver.id,
+      shopDomain: normalizeShopDomain(routePlan.shop.shopDomain)
+    },
     status: 'INVITED',
     routeAccess: {
       nextState: 'consent_required',
