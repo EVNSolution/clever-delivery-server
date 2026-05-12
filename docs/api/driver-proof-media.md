@@ -8,9 +8,11 @@ This endpoint is a binary upload companion to `POST /driver/events`. The driver 
 
 The route is registered with the Driver API runtime when `JWT_SECRET` is configured. Runtime dependencies include `DRIVER_PROOF_MEDIA_STORAGE_DIR`, which defaults to `var/driver-proof-media` when unset. That default local path is ignored by git and is suitable for local/dev smoke only.
 
+The repository writes and removes bytes through a `DriverProofMediaStorageBackend` contract. The current runtime wires the local filesystem backend, while a production deployment can replace that backend with object storage without changing route scope checks, metadata persistence, EXIF stripping, or retention cleanup orchestration.
+
 `DRIVER_PROOF_MEDIA_RETENTION_DAYS` defines the default proof-media cleanup window for cleanup jobs and defaults to 180 days when unset. Production object storage ownership, signed retrieval/access, malware scanning, and private evidence storage remain hardening work. Do not treat the local filesystem storage path as the final production object-storage design.
 
-JPEG uploads are sanitized before byte persistence: valid EXIF APP1 segments are removed, and returned/stored `sha256` plus `sizeBytes` describe the sanitized bytes. This reduces accidental location/device metadata retention in local proof storage, but it is not a replacement for production malware scanning, signed access, or private object storage controls.
+JPEG uploads are sanitized before byte persistence: valid EXIF APP1 segments are removed, and returned/stored `sha256` plus `sizeBytes` describe the sanitized bytes. This reduces accidental location/device metadata retention in proof storage, but it is not a replacement for production malware scanning, signed access, or private object storage controls.
 
 Manual or cron-style retention cleanup uses:
 
@@ -107,10 +109,10 @@ The repository checks all of the following before writing bytes or metadata:
 - Do not log multipart bodies, file bytes, customer addresses, or real proof images.
 - Use synthetic proof images in tests and public PR evidence.
 - JPEG EXIF APP1 metadata is stripped before local byte storage and before `sha256` / `sizeBytes` are recorded.
-- `PrismaDriverProofMediaRepository.deleteExpiredProofMedia()` selects undeleted metadata older than the configured cutoff, removes local stored bytes under the configured storage root, and marks rows with `deletedAt`.
+- `PrismaDriverProofMediaRepository.deleteExpiredProofMedia()` selects undeleted metadata older than the configured cutoff, removes stored bytes through the configured storage backend, and marks rows with `deletedAt`.
 - Missing local files are treated idempotently and still result in `deletedAt` metadata so repeated cleanup can converge.
 - Storage keys are resolved under the configured storage root before deletion; keys that escape the root are rejected before metadata is updated.
-- `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled local cleanup.
+- `src/scripts/cleanup-driver-proof-media.ts` is the operational entry point for manual or scheduled cleanup. The default runtime backend is local filesystem storage.
 - Object storage, signed URL access, virus/malware scanning, and private evidence storage remain follow-up hardening items.
 
 ## Adjacent APIs
