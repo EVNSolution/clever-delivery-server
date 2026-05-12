@@ -48,6 +48,12 @@ git diff --check
 
 Generated build outputs, local env files, local runtime state, dependency folders, logs, coverage, and proof-media storage directories must stay untracked. Review `.gitignore` before adding new tooling, generated clients, database dumps, or deployment artifacts.
 
+## Repository baseline files
+
+- `.editorconfig` and `.gitattributes` keep source-controlled text UTF-8/LF across macOS, Linux, and Windows contributors.
+- `.gitignore` and `.dockerignore` exclude local env files, Node/TypeScript outputs, proof-media runtime files, DB dumps/backups, private release/smoke/security evidence, logs, caches, and local key/certificate material.
+- Do not commit ignored artifacts by force unless an owner explicitly approves the exception and the artifact contains no secrets, customer data, driver phone numbers, location data, proof media, database dumps, or private operational evidence.
+
 ## License
 
 No public license has been selected for this repository. `package.json` currently declares `UNLICENSED`; do not add reuse or redistribution terms without an explicit owner decision.
