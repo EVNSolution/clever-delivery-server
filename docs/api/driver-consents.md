@@ -78,11 +78,18 @@ Invalid payloads return:
 
 ## Data minimization
 
-Consent records are evidence that a driver accepted the relevant notices. They are not assigned-route reads and they are not location collection ledgers by themselves. Later assigned route/stop reads and driver GPS updates still need access/usage logging according to `docs/compliance/location-data-handling.md`.
+Consent records are evidence that a driver accepted the relevant notices. They are not assigned-route reads and they are not location collection ledgers by themselves. Assigned route reads and future stop/GPS APIs still need access/usage logging according to `docs/compliance/location-data-handling.md`.
 
-## Follow-up APIs
+## Adjacent and follow-up APIs
 
-- route/stop reads after consent
+Implemented adjacent contract:
+
+- assigned route read: `docs/api/driver-assigned-route.md`
+
+Remaining follow-up contracts:
+
+- stop detail reads and stop action writes after assigned route read
+- server-side current-consent/version enforcement for route/stop reads when the client sequence alone is not sufficient
 - foreground/background location event hardening and location usage/access logging
 - consent copy source-of-truth/version registry
 - driver login/session issuance

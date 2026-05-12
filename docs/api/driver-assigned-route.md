@@ -6,7 +6,7 @@ This endpoint is the first route/stop read contract for `clever-driver-app`. Unl
 
 ## Runtime registration
 
-The route is registered with the Driver API runtime when `JWT_SECRET` is configured. The bearer token must be a server-issued driver JWT with audience `clever-delivery-driver`; the token provides `driverId` and `shopDomain` so clients cannot choose the tenant or driver in the request body.
+The route is registered with the Driver API runtime when `JWT_SECRET` is configured. The bearer token must be a server-issued driver JWT with audience `clever-delivery-driver`; the token provides `driverId` and `shopDomain` so clients cannot choose the tenant or driver in the request body. Production rollout still needs the route+phone session/token issuance path and, if client-side sequencing is not sufficient, server-side current-consent/version enforcement before route/stop reads.
 
 ## GET `/driver/assigned-route`
 
@@ -98,5 +98,6 @@ A successful assigned route read provides stop address/location context to the d
 
 - stop detail read and proof-of-delivery write actions
 - driver session/access token issuance after route+phone lookup
+- server-side current-consent/version enforcement for route/stop reads when required by the production access model
 - dedicated location access/usage logging for route/stop reads
 - foreground/background GPS collection after explicit delivery start

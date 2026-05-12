@@ -18,9 +18,9 @@ This repository currently contains the basic Node.js/TypeScript API scaffold plu
 - Shopify session-token verifier, token-exchange client, API route, and env-driven runtime wiring
 - Shopify HTTPS webhook HMAC verifier, receive route, and idempotent receipt-storage contract
 - Shopify Admin GraphQL client plus order-sync query/mapper/service foundation
-- Driver API bearer-token verifier, route+phone access lookup, consent persistence, and idempotent driver-event ingest route
+- Driver API bearer-token verifier, route+phone access lookup, consent persistence, assigned route read, and idempotent driver-event ingest route
 
-Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/route-list APIs, assigned route/stop reads, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
+Shopify webhook order processing, live Admin GraphQL sync validation, route optimization, driver login/session issuance APIs, stop-detail/action APIs, dedicated location access/usage logging, and live EC2/EBS deployment work are intentionally left for follow-up issue-linked branches.
 
 ## Local development
 
