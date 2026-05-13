@@ -3,12 +3,13 @@ import type { PrismaClient } from '@prisma/client';
 import type {
   DriverRouteAccessAmbiguousMatch,
   DriverRouteAccessCompanyGuidance,
+  DriverRouteAccessInvitedRoute,
   DriverRouteAccessLookupInput,
   DriverRouteAccessLookupResult,
   DriverRouteAccessServiceContract
 } from './driver-route-access.types.js';
 
-type DriverRouteAccessPrismaClient = Pick<PrismaClient, 'routePlan'>;
+type DriverRouteAccessPrismaClient = Pick<PrismaClient, 'driver' | 'routePlan'>;
 
 type DriverRoutePlanRecord = {
   constraints: unknown;
@@ -40,23 +41,78 @@ export class PrismaDriverRouteAccessRepository implements DriverRouteAccessServi
   constructor(private readonly prisma: DriverRouteAccessPrismaClient) {}
 
   async lookupRouteAccess(input: DriverRouteAccessLookupInput): Promise<DriverRouteAccessLookupResult> {
-    if (!UUID_PATTERN.test(input.routeContext)) {
+    const routeContext = input.routeContext;
+    if (routeContext === null) {
+      return this.lookupPhoneRouteAccess(input.phoneE164);
+    }
+
+    if (!UUID_PATTERN.test(routeContext)) {
       return this.lookupRouteScopeAccess(input);
     }
 
     const routePlan = await this.prisma.routePlan.findUnique({
       select: routePlanSelect,
-      where: { id: input.routeContext }
+      where: { id: routeContext }
     });
 
     if (routePlan === null) {
       return { status: 'NOT_FOUND' };
     }
 
-    return mapRoutePlan(routePlan, input);
+    return mapRoutePlan(routePlan, { phoneE164: input.phoneE164, routeContext });
+  }
+
+  private async lookupPhoneRouteAccess(phoneE164: string): Promise<DriverRouteAccessLookupResult> {
+    const routePlans = await this.prisma.routePlan.findMany({
+      orderBy: [{ planDate: 'asc' }, { name: 'asc' }],
+      select: routePlanSelect,
+      where: {
+        driver: { is: { phone: phoneE164, status: 'ACTIVE' } },
+        status: { in: ['ASSIGNED', 'IN_PROGRESS', 'OPTIMIZED'] }
+      }
+    });
+
+    const routes = routePlans.flatMap((routePlan): DriverRouteAccessInvitedRoute[] => {
+      const result = mapRoutePlan(routePlan, { phoneE164, routeContext: routePlan.id });
+      return result.status === 'INVITED' ? [result] : [];
+    });
+
+    if (routes.length > 0) {
+      return {
+        status: 'ROUTES_FOUND',
+        routes
+      };
+    }
+
+    const drivers = await this.prisma.driver.findMany({
+      select: { status: true },
+      where: { phone: phoneE164 }
+    });
+    if (drivers.length === 0) {
+      return { status: 'NOT_FOUND' };
+    }
+
+    if (drivers.some((driver) => driver.status === 'ACTIVE')) {
+      return {
+        status: 'ROUTES_FOUND',
+        routes: []
+      };
+    }
+
+    if (drivers.some((driver) => driver.status === 'SUSPENDED')) {
+      return { status: 'BLOCKED' };
+    }
+
+    return {
+      status: 'DISABLED'
+    };
   }
 
   private async lookupRouteScopeAccess(input: DriverRouteAccessLookupInput): Promise<DriverRouteAccessLookupResult> {
+    if (input.routeContext === null) {
+      return { status: 'NOT_FOUND' };
+    }
+
     const routePlans = await this.prisma.routePlan.findMany({
       orderBy: [{ planDate: 'asc' }, { name: 'asc' }],
       select: routePlanSelect,
@@ -83,14 +139,14 @@ export class PrismaDriverRouteAccessRepository implements DriverRouteAccessServi
     return {
       status: 'MULTIPLE_MATCHES',
       matches: routePlans.slice(0, 2).map(buildAmbiguousMatch),
-      resolutionHint: 'Use the route-specific invite link/code from dispatch.'
+      resolutionHint: 'Use the phone-only route list or contact dispatch.'
     };
   }
 }
 
 function mapRoutePlan(
   routePlan: DriverRoutePlanRecord,
-  input: DriverRouteAccessLookupInput
+  input: { phoneE164: string; routeContext: string }
 ): DriverRouteAccessLookupResult {
   if (routePlan.driver === null || routePlan.driver.phone !== input.phoneE164) {
     return { status: 'NOT_FOUND' };

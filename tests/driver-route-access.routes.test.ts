@@ -47,22 +47,71 @@ const invitedLookup = {
 };
 
 describe('Driver route access lookup route', () => {
-  test('rejects phone-only access before repository lookup', async () => {
-    const { app, lookupRouteAccess } = await createAppHarness();
+  test('accepts phone-only access and returns route choices with company guidance', async () => {
+    const { app, lookupRouteAccess } = await createAppHarness({
+      result: {
+        status: 'ROUTES_FOUND',
+        routes: [invitedLookup]
+      }
+    });
 
     try {
       const response = await app.inject({
         method: 'POST',
-        payload: { phoneE164: '+14165550123', routeContext: '' },
+        payload: { phoneE164: '+14165550123' },
         url: '/driver/route-access/lookup'
       });
 
-      expect(response.statusCode).toBe(400);
-      expect(response.json()).toEqual({
-        data: null,
-        error: { code: 'BAD_REQUEST', message: 'Invalid route access lookup payload' }
+      expect(response.statusCode).toBe(200);
+      const body = response.json<{ data: { routes: Array<{ driverAccess: { accessToken: string } }> }; error: null }>();
+      expect(body.data).toMatchObject({
+        status: 'ROUTES_FOUND',
+        routes: [
+          {
+            companyGuidance: invitedLookup.companyGuidance,
+            routeAccess: invitedLookup.routeAccess
+          }
+        ]
       });
-      expect(lookupRouteAccess).not.toHaveBeenCalled();
+      expect(body.data.routes[0]?.driverAccess.accessToken).toEqual(expect.any(String));
+      expect(lookupRouteAccess).toHaveBeenCalledWith({
+        phoneE164: '+14165550123',
+        routeContext: null
+      });
+      expect(JSON.stringify(body)).not.toContain('driverContext');
+      expect(JSON.stringify(body)).not.toContain('address1');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('accepts registered phone lookup with no active routes as an empty route list', async () => {
+    const { app, lookupRouteAccess } = await createAppHarness({
+      result: {
+        status: 'ROUTES_FOUND',
+        routes: []
+      }
+    });
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        payload: { phoneE164: '+14165550123' },
+        url: '/driver/route-access/lookup'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          status: 'ROUTES_FOUND',
+          routes: []
+        },
+        error: null
+      });
+      expect(lookupRouteAccess).toHaveBeenCalledWith({
+        phoneE164: '+14165550123',
+        routeContext: null
+      });
     } finally {
       await app.close();
     }
@@ -168,20 +217,20 @@ describe('Driver route access lookup route', () => {
             companyDisplayName: 'North Market',
             deliveryDate: '2026-05-12',
             operatorSupportContact: '+14165550001',
-            pickupGuidance: 'Use the route-specific invite link from dispatch.',
+            pickupGuidance: 'Contact dispatch if this route assignment looks unfamiliar.',
             routeName: 'North PM Route',
             shopDomain: 'north-market.myshopify.com',
             timezone: 'America/Toronto'
           }
         ],
-        resolutionHint: 'Use the route-specific invite link/code from dispatch.'
+        resolutionHint: 'Use the phone-only route list or contact dispatch.'
       }
     });
 
     try {
       const response = await multipleMatches.app.inject({
         method: 'POST',
-        payload: { phoneE164: '+14165550123', routeContext: 'toronto-shared-route-code' },
+        payload: { phoneE164: '+14165550123', routeContext: 'toronto-shared-route-scope' },
         url: '/driver/route-access/lookup'
       });
 
@@ -203,13 +252,13 @@ describe('Driver route access lookup route', () => {
               companyDisplayName: 'North Market',
               deliveryDate: '2026-05-12',
               operatorSupportContact: '+14165550001',
-              pickupGuidance: 'Use the route-specific invite link from dispatch.',
+              pickupGuidance: 'Contact dispatch if this route assignment looks unfamiliar.',
               routeName: 'North PM Route',
               shopDomain: 'north-market.myshopify.com',
               timezone: 'America/Toronto'
             }
           ],
-          resolutionHint: 'Use the route-specific invite link/code from dispatch.'
+          resolutionHint: 'Use the phone-only route list or contact dispatch.'
         },
         error: null
       });
