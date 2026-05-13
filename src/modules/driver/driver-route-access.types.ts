@@ -1,6 +1,6 @@
 export type DriverRouteAccessLookupInput = {
   phoneE164: string;
-  routeContext: string;
+  routeContext: string | null;
 };
 
 export type DriverRouteAccessCompanyGuidance = {
@@ -24,19 +24,25 @@ export type DriverRouteAccessAmbiguousMatch = {
   timezone: string | null;
 };
 
+export type DriverRouteAccessInvitedRoute = {
+  driverContext: {
+    driverId: string;
+    shopDomain: string;
+  };
+  status: 'INVITED';
+  routeAccess: {
+    nextState: 'consent_required';
+    routeContext: string;
+    routePlanId: string;
+  };
+  companyGuidance: DriverRouteAccessCompanyGuidance;
+};
+
 export type DriverRouteAccessLookupResult =
+  | DriverRouteAccessInvitedRoute
   | {
-      driverContext: {
-        driverId: string;
-        shopDomain: string;
-      };
-      status: 'INVITED';
-      routeAccess: {
-        nextState: 'consent_required';
-        routeContext: string;
-        routePlanId: string;
-      };
-      companyGuidance: DriverRouteAccessCompanyGuidance;
+      status: 'ROUTES_FOUND';
+      routes: DriverRouteAccessInvitedRoute[];
     }
   | {
       status: 'MULTIPLE_MATCHES';

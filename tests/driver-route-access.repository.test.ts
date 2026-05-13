@@ -51,6 +51,101 @@ describe('PrismaDriverRouteAccessRepository', () => {
     expect(JSON.stringify(result)).not.toContain('address1');
   });
 
+
+
+  test('finds active route choices by phone without requiring route context', async () => {
+    const { prisma } = createPrismaHarness({
+      phoneRoutePlans: [
+        routePlanRecord({
+          id: '22222222-2222-4222-8222-222222222222',
+          name: 'Tuesday AM Route'
+        }),
+        routePlanRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          name: 'North PM Route',
+          shopDomain: 'north-market.myshopify.com'
+        })
+      ]
+    });
+    const repository = new PrismaDriverRouteAccessRepository(prisma as never);
+
+    const result = await repository.lookupRouteAccess({
+      phoneE164: '+14165550123',
+      routeContext: null
+    });
+
+    expect(prisma.routePlan.findMany).toHaveBeenCalledWith({
+      orderBy: [{ planDate: 'asc' }, { name: 'asc' }],
+      select: {
+        constraints: true,
+        driver: { select: { id: true, phone: true, status: true } },
+        id: true,
+        name: true,
+        planDate: true,
+        shop: { select: { shopDomain: true } }
+      },
+      where: {
+        driver: { is: { phone: '+14165550123', status: 'ACTIVE' } },
+        status: { in: ['ASSIGNED', 'IN_PROGRESS', 'OPTIMIZED'] }
+      }
+    });
+    expect(result.status).toBe('ROUTES_FOUND');
+    if (result.status !== 'ROUTES_FOUND') {
+      throw new Error(`Expected ROUTES_FOUND, got ${result.status}`);
+    }
+    expect(result.routes).toMatchObject([
+      {
+        status: 'INVITED',
+        routeAccess: {
+          nextState: 'consent_required',
+          routeContext: '22222222-2222-4222-8222-222222222222',
+          routePlanId: '22222222-2222-4222-8222-222222222222'
+        },
+        companyGuidance: {
+          companyDisplayName: 'Tomatono Toronto',
+          routeName: 'Tuesday AM Route',
+          shopDomain: 'tomatono.myshopify.com'
+        }
+      },
+      {
+        status: 'INVITED',
+        routeAccess: {
+          nextState: 'consent_required',
+          routeContext: '33333333-3333-4333-8333-333333333333',
+          routePlanId: '33333333-3333-4333-8333-333333333333'
+        },
+        companyGuidance: {
+          companyDisplayName: 'North Market',
+          routeName: 'North PM Route',
+          shopDomain: 'north-market.myshopify.com'
+        }
+      }
+    ]);
+    expect(JSON.stringify(result)).not.toContain('address1');
+  });
+
+  test('allows a registered active driver phone even when no active routes are assigned', async () => {
+    const { prisma } = createPrismaHarness({
+      phoneDrivers: [{ status: 'ACTIVE' }],
+      phoneRoutePlans: []
+    });
+    const repository = new PrismaDriverRouteAccessRepository(prisma as never);
+
+    const result = await repository.lookupRouteAccess({
+      phoneE164: '+14165550123',
+      routeContext: null
+    });
+
+    expect(prisma.driver.findMany).toHaveBeenCalledWith({
+      select: { status: true },
+      where: { phone: '+14165550123' }
+    });
+    expect(result).toEqual({
+      status: 'ROUTES_FOUND',
+      routes: []
+    });
+  });
+
   test('does not reveal route guidance when the phone does not match the assigned driver', async () => {
     const { prisma } = createPrismaHarness();
     const repository = new PrismaDriverRouteAccessRepository(prisma as never);
@@ -94,7 +189,7 @@ describe('PrismaDriverRouteAccessRepository', () => {
 
     const result = await repository.lookupRouteAccess({
       phoneE164: '+14165550123',
-      routeContext: 'toronto-shared-route-code'
+      routeContext: 'toronto-shared-route-scope'
     });
 
     expect(prisma.routePlan.findMany).toHaveBeenCalledWith({
@@ -109,7 +204,7 @@ describe('PrismaDriverRouteAccessRepository', () => {
       },
       take: 3,
       where: {
-        constraints: { path: ['routeScope', 'routeScopeKey'], equals: 'toronto-shared-route-code' },
+        constraints: { path: ['routeScope', 'routeScopeKey'], equals: 'toronto-shared-route-scope' },
         driver: { is: { phone: '+14165550123', status: 'ACTIVE' } }
       }
     });
@@ -135,7 +230,7 @@ describe('PrismaDriverRouteAccessRepository', () => {
           timezone: 'America/Toronto'
         }
       ],
-      resolutionHint: 'Use the route-specific invite link/code from dispatch.'
+      resolutionHint: 'Use the phone-only route list or contact dispatch.'
     });
     expect(JSON.stringify(result)).not.toContain('driverContext');
     expect(JSON.stringify(result)).not.toContain('routePlanId');
@@ -151,7 +246,7 @@ describe('PrismaDriverRouteAccessRepository', () => {
 
     const result = await repository.lookupRouteAccess({
       phoneE164: '+14165550123',
-      routeContext: 'toronto-shared-route-code'
+      routeContext: 'toronto-shared-route-scope'
     });
 
     expect(result).toEqual(expect.objectContaining({
@@ -179,11 +274,16 @@ describe('PrismaDriverRouteAccessRepository', () => {
 function createPrismaHarness(
   overrides: {
     driverStatus?: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
+    phoneDrivers?: Array<{ status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' }>;
     routePlan?: ReturnType<typeof routePlanRecord> | null;
     sharedRoutePlans?: ReturnType<typeof routePlanRecord>[];
+    phoneRoutePlans?: ReturnType<typeof routePlanRecord>[];
   } = {}
 ): {
   prisma: {
+    driver: {
+      findMany: ReturnType<typeof vi.fn>;
+    };
     routePlan: {
       findMany: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
@@ -195,8 +295,18 @@ function createPrismaHarness(
     : overrides.routePlan;
   return {
     prisma: {
+      driver: {
+        findMany: vi.fn(() => Promise.resolve(overrides.phoneDrivers ?? []))
+      },
       routePlan: {
-        findMany: vi.fn(() => Promise.resolve(overrides.sharedRoutePlans ?? [])),
+        findMany: vi.fn((query?: unknown) => {
+          const text = JSON.stringify(query);
+          if (text.includes('routeScopeKey')) {
+            return Promise.resolve(overrides.sharedRoutePlans ?? []);
+          }
+
+          return Promise.resolve(overrides.phoneRoutePlans ?? overrides.sharedRoutePlans ?? []);
+        }),
         findUnique: vi.fn(() => Promise.resolve(routePlan))
       }
     }
@@ -219,7 +329,7 @@ function routePlanRecord(
       operatorSupportContact: '+14165550000',
       pickupGuidance: 'Meet at dispatch desk by 9:00 AM',
       routeScope: {
-        routeScopeKey: 'toronto-shared-route-code'
+        routeScopeKey: 'toronto-shared-route-scope'
       },
       timezone: 'America/Toronto'
     },

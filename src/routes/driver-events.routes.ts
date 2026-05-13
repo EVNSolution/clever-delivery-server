@@ -9,6 +9,7 @@ import type {
   RecordDriverConsentsInput
 } from '../modules/driver/driver-consent.types.js';
 import type {
+  DriverRouteAccessInvitedRoute,
   DriverRouteAccessLookupInput,
   DriverRouteAccessLookupResult,
   DriverRouteAccessServiceContract
@@ -347,10 +348,24 @@ function buildDriverRouteAccessResponse(
   result: DriverRouteAccessLookupResult,
   dependencies: DriverApiDependencies
 ): unknown {
+  if (result.status === 'ROUTES_FOUND') {
+    return {
+      status: 'ROUTES_FOUND',
+      routes: result.routes.map((route) => buildInvitedDriverRouteAccessResponse(route, dependencies))
+    };
+  }
+
   if (result.status !== 'INVITED') {
     return result;
   }
 
+  return buildInvitedDriverRouteAccessResponse(result, dependencies);
+}
+
+function buildInvitedDriverRouteAccessResponse(
+  result: DriverRouteAccessInvitedRoute,
+  dependencies: DriverApiDependencies
+): unknown {
   const now = dependencies.now?.();
   const token = signDriverToken(
     {
@@ -377,7 +392,7 @@ function buildDriverRouteAccessResponse(
 }
 
 function readDriverRouteAccessBody(body: DriverRouteAccessRequestBody): DriverRouteAccessLookupInput {
-  const routeContext = readRequiredString(body.routeContext);
+  const routeContext = readOptionalString(body.routeContext);
   const phoneE164 = readRequiredString(body.phoneE164);
 
   if (!/^\+[1-9]\d{7,14}$/u.test(phoneE164)) {
