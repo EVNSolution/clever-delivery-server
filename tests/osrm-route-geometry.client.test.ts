@@ -9,6 +9,8 @@ const detail = {
     deliveryAreas: ['Scarborough'],
     deliveryDays: ['Friday'],
     depot: { latitude: 43.6532, longitude: -79.3832 },
+    driver: null,
+    driverId: null,
     id: 'route-plan-id',
     missingCoordinates: 0,
     name: 'Friday route',

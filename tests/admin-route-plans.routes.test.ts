@@ -19,6 +19,8 @@ const routePlanSummary = {
     latitude: 43.6532,
     longitude: -79.3832
   },
+  driver: null,
+  driverId: null,
   id: 'route-plan-id',
   missingCoordinates: 0,
   name: 'Tomatono route draft',
@@ -26,6 +28,21 @@ const routePlanSummary = {
   status: 'DRAFT',
   stopsCount: 1,
   updatedAt: '2026-05-07T12:30:00.000Z'
+};
+
+
+const routePlanSummaryWithPendingDriver = {
+  ...routePlanSummary,
+  driverId: 'driver-pending-id',
+  driver: {
+    authStatus: 'INVITE_PENDING' as const,
+    authSubject: null,
+    displayName: 'Pending Driver',
+    id: 'driver-pending-id',
+    lastSeenAt: null,
+    phone: '+14165550123',
+    status: 'PENDING' as const
+  }
 };
 
 describe('Admin route plan routes', () => {
@@ -577,6 +594,114 @@ describe('Admin route plan routes', () => {
     }
   });
 
+
+  test('assigns a server-saved pending driver to the route plan for the token shop', async () => {
+    const { assignRoutePlanDriver, dependencies } = createDependencyHarness();
+    assignRoutePlanDriver.mockResolvedValueOnce({
+      routePlan: routePlanSummaryWithPendingDriver,
+      routeGeometry: null,
+      routeStopPoints: routePlanStopPoints(),
+      stops: [routePlanStop({ orderName: '#1035', sequence: 1 })]
+    });
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { driverId: 'driver-pending-id' },
+        url: '/admin/route-plans/route-plan-id/driver'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: {
+          routePlan: routePlanSummaryWithPendingDriver,
+          routeGeometry: null,
+          routeStopPoints: routePlanStopPoints(),
+          stops: [routePlanStop({ orderName: '#1035', sequence: 1 })]
+        },
+        error: null
+      });
+      expect(assignRoutePlanDriver).toHaveBeenCalledWith({
+        payload: { driverId: 'driver-pending-id' },
+        routePlanId: 'route-plan-id',
+        shopDomain: 'example.myshopify.com'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('clears the route plan driver assignment with a null driver id', async () => {
+    const { assignRoutePlanDriver, dependencies } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { driverId: null },
+        url: '/admin/route-plans/route-plan-id/driver'
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(assignRoutePlanDriver).toHaveBeenCalledWith({
+        payload: { driverId: null },
+        routePlanId: 'route-plan-id',
+        shopDomain: 'example.myshopify.com'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('rejects invalid route driver assignment payloads before calling the service', async () => {
+    const { assignRoutePlanDriver, dependencies } = createDependencyHarness();
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { driverId: 123 },
+        url: '/admin/route-plans/route-plan-id/driver'
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'BAD_REQUEST', message: 'Invalid route driver assignment payload' }
+      });
+      expect(assignRoutePlanDriver).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('returns not found when assigning a driver outside the token shop', async () => {
+    const { assignRoutePlanDriver, dependencies } = createDependencyHarness();
+    assignRoutePlanDriver.mockResolvedValueOnce(null);
+    const app = await buildApp({ adminRoutePlans: dependencies });
+
+    try {
+      const response = await app.inject({
+        headers: { authorization: 'Bearer session-token' },
+        method: 'PATCH',
+        payload: { driverId: 'other-shop-driver-id' },
+        url: '/admin/route-plans/route-plan-id/driver'
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({
+        data: null,
+        error: { code: 'NOT_FOUND', message: 'Route plan or driver not found' }
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   test('deletes a route plan for the token shop', async () => {
     const { dependencies, deleteRoutePlan } = createDependencyHarness();
     const app = await buildApp({ adminRoutePlans: dependencies });
@@ -607,6 +732,9 @@ describe('Admin route plan routes', () => {
 });
 
 function createDependencyHarness(): {
+  assignRoutePlanDriver: ReturnType<
+    typeof vi.fn<AdminRoutePlanDependencies['routePlanService']['assignRoutePlanDriver']>
+  >;
   createRoutePlan: ReturnType<
     typeof vi.fn<AdminRoutePlanDependencies['routePlanService']['createRoutePlan']>
   >;
@@ -628,6 +756,19 @@ function createDependencyHarness(): {
     shopDomain: 'example.myshopify.com',
     subject: 'shopify-user-id'
   }));
+  const assignRoutePlanDriver = vi.fn<
+    AdminRoutePlanDependencies['routePlanService']['assignRoutePlanDriver']
+  >(() =>
+    Promise.resolve({
+      routePlan: routePlanSummary,
+      routeGeometry: null,
+      routeStopPoints: routePlanStopPoints(),
+      stops: [
+        routePlanStop({ orderName: '#1035', sequence: 1 }),
+        routePlanStop({ orderName: '#1036', sequence: 2 })
+      ]
+    })
+  );
   const createRoutePlan = vi.fn<AdminRoutePlanDependencies['routePlanService']['createRoutePlan']>(
     () => Promise.resolve(routePlanSummary)
   );
@@ -665,9 +806,11 @@ function createDependencyHarness(): {
   );
 
   return {
+    assignRoutePlanDriver,
     createRoutePlan,
     dependencies: {
       routePlanService: {
+        assignRoutePlanDriver,
         createRoutePlan,
         deleteRoutePlan,
         getRoutePlanDetail,

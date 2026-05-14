@@ -1,4 +1,5 @@
 import type {
+  AssignRoutePlanDriverInput,
   CreateRoutePlanInput,
   RoutePlanDetail,
   RoutePlanRouteResult,
@@ -12,6 +13,7 @@ export type RouteGeometryProvider = {
 };
 
 export type RoutePlanRepository = {
+  assignRoutePlanDriver(input: AssignRoutePlanDriverInput): Promise<RoutePlanDetail | null>;
   createRoutePlanDraft(input: {
     createdBy: string;
     depot: CreateRoutePlanInput['payload']['depot'];
@@ -49,6 +51,10 @@ export class RoutePlanAdminService implements RoutePlanService {
       routeScope: input.payload.routeScope,
       shopDomain: input.shopDomain
     });
+  }
+
+  async assignRoutePlanDriver(input: AssignRoutePlanDriverInput): Promise<RoutePlanDetail | null> {
+    return this.withRouteGeometry(await this.repository.assignRoutePlanDriver(input));
   }
 
   async getRoutePlanDetail(input: {

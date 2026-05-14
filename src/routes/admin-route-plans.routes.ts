@@ -5,6 +5,7 @@ import {
   RoutePlanStopUpdateInvalidError
 } from '../modules/route-plans/route-plan.types.js';
 import type {
+  AssignRoutePlanDriverPayload,
   CreateRoutePlanPayload,
   RoutePlanOrderAttributeInput,
   RoutePlanOrderInput,
@@ -158,6 +159,37 @@ export function registerAdminRoutePlanRoutes(
     }
   );
 
+  app.patch<{ Body: unknown; Params: { routePlanId: string } }>(
+    '/admin/route-plans/:routePlanId/driver',
+    async (request, reply) => {
+      const authenticated = authenticate(request.headers.authorization, dependencies);
+      if (authenticated.status === 'unauthorized') {
+        return reply.code(401).send(errorResponse('UNAUTHORIZED', authenticated.message));
+      }
+
+      let payload: AssignRoutePlanDriverPayload;
+      try {
+        payload = readAssignRoutePlanDriverPayload(request.body);
+      } catch {
+        return reply.code(400).send(errorResponse('BAD_REQUEST', 'Invalid route driver assignment payload'));
+      }
+
+      const detail = await dependencies.routePlanService.assignRoutePlanDriver({
+        payload,
+        routePlanId: request.params.routePlanId,
+        shopDomain: authenticated.shopDomain
+      });
+      if (detail === null) {
+        return reply.code(404).send(errorResponse('NOT_FOUND', 'Route plan or driver not found'));
+      }
+
+      return reply.code(200).send({
+        data: detail,
+        error: null
+      });
+    }
+  );
+
   app.delete<{ Params: { routePlanId: string } }>(
     '/admin/route-plans/:routePlanId',
     async (request, reply) => {
@@ -249,6 +281,14 @@ function readUpdateRoutePlanStopsPayload(value: unknown): UpdateRoutePlanStopsPa
         shopifyOrderGid: requireNonEmptyString(stop.shopifyOrderGid)
       };
     })
+  };
+}
+
+function readAssignRoutePlanDriverPayload(value: unknown): AssignRoutePlanDriverPayload {
+  const object = requireObject(value);
+
+  return {
+    driverId: readNullableLooseString(object.driverId)
   };
 }
 
@@ -491,6 +531,19 @@ function readNullableString(value: unknown): string | null {
   }
 
   return value.trim() === '' ? null : value.trim();
+}
+
+function readNullableLooseString(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error('string required');
+  }
+
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 function readNullableCoordinate(value: unknown): number | null {

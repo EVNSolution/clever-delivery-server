@@ -14,6 +14,8 @@ const routePlanDetail = {
     deliveryAreas: ['Scarborough'],
     deliveryDays: ['Friday'],
     depot: { latitude: 43.6532, longitude: -79.3832 },
+    driver: null,
+    driverId: null,
     id: 'route-plan-id',
     missingCoordinates: 0,
     name: 'Friday route',
@@ -131,6 +133,26 @@ describe('RoutePlanAdminService route geometry', () => {
     ]);
   });
 
+
+  test('assigns route drivers through the repository and keeps OSRM enrichment on the returned detail', async () => {
+    const { assignRoutePlanDriver, repository, routeGeometryProvider } = createHarness(routePlanDetail);
+    const service = new RoutePlanAdminService(repository, routeGeometryProvider);
+
+    const detail = await service.assignRoutePlanDriver({
+      routePlanId: 'route-plan-id',
+      shopDomain: 'example.myshopify.com',
+      payload: { driverId: 'driver-pending-id' }
+    });
+
+    expect(assignRoutePlanDriver).toHaveBeenCalledWith({
+      routePlanId: 'route-plan-id',
+      shopDomain: 'example.myshopify.com',
+      payload: { driverId: 'driver-pending-id' }
+    });
+    expect(routeGeometryProvider.buildRoute).toHaveBeenCalledWith(routePlanDetail);
+    expect(detail?.routeGeometry?.type).toBe('LineString');
+  });
+
   test('returns updated route stops with null geometry and empty stop points when OSRM fails', async () => {
     const { repository, routeGeometryProvider } = createHarness(routePlanDetail);
     routeGeometryProvider.buildRoute.mockRejectedValueOnce(new Error('OSRM unavailable'));
@@ -153,11 +175,14 @@ function createHarness(detail: RoutePlanDetail): {
   routeGeometryProvider: {
     buildRoute: ReturnType<typeof vi.fn<RouteGeometryProvider['buildRoute']>>;
   };
+  assignRoutePlanDriver: ReturnType<typeof vi.fn<RoutePlanRepository['assignRoutePlanDriver']>>;
   updateRoutePlanStops: ReturnType<typeof vi.fn<RoutePlanRepository['updateRoutePlanStops']>>;
 } {
+  const assignRoutePlanDriver = vi.fn<RoutePlanRepository['assignRoutePlanDriver']>().mockResolvedValue(detail);
   const updateRoutePlanStops = vi.fn<RoutePlanRepository['updateRoutePlanStops']>().mockResolvedValue(detail);
   const repository = {
     createRoutePlanDraft: vi.fn(),
+    assignRoutePlanDriver,
     deleteRoutePlan: vi.fn(),
     findRoutePlanDetail: vi.fn().mockResolvedValue(detail),
     listRoutePlans: vi.fn(),
@@ -197,7 +222,7 @@ function createHarness(detail: RoutePlanDetail): {
     } satisfies RoutePlanRouteResult))
   };
 
-  return { repository, routeGeometryProvider, updateRoutePlanStops };
+  return { assignRoutePlanDriver, repository, routeGeometryProvider, updateRoutePlanStops };
 }
 
 function routeStop(input: { latitude: number; longitude: number; sequence: number }): RoutePlanDetail['stops'][number] {

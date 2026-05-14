@@ -316,6 +316,68 @@ describe('PrismaRoutePlanRepository', () => {
     expect(prisma.routePlanStop.deleteMany).not.toHaveBeenCalled();
   });
 
+
+  test('assigns a same-shop pending driver without requiring an app-linked auth subject', async () => {
+    const { prisma } = createPrismaHarness({
+      driverToAssign: { id: 'driver-pending-id', authSubject: null, displayName: 'Pending Driver' }
+    });
+    const repository = new PrismaRoutePlanRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaRoutePlanRepository>[0]
+    );
+
+    const result = await repository.assignRoutePlanDriver({
+      routePlanId: 'route-plan-id',
+      shopDomain: 'example.myshopify.com',
+      payload: { driverId: 'driver-pending-id' }
+    });
+
+    expect(result?.routePlan.id).toBe('route-plan-id');
+    expect(prisma.driver.findFirst).toHaveBeenCalledWith({
+      select: { id: true },
+      where: { id: 'driver-pending-id', shopId: 'shop-id' }
+    });
+    expect(prisma.routePlan.update).toHaveBeenCalledWith({
+      data: { driverId: 'driver-pending-id' },
+      where: { id: 'route-plan-id' }
+    });
+  });
+
+  test('returns null without updating when route driver is outside the current shop scope', async () => {
+    const { prisma } = createPrismaHarness({ driverToAssign: null });
+    const repository = new PrismaRoutePlanRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaRoutePlanRepository>[0]
+    );
+
+    const result = await repository.assignRoutePlanDriver({
+      routePlanId: 'route-plan-id',
+      shopDomain: 'example.myshopify.com',
+      payload: { driverId: 'other-shop-driver-id' }
+    });
+
+    expect(result).toBeNull();
+    expect(prisma.routePlan.update).not.toHaveBeenCalled();
+  });
+
+  test('clears a route driver assignment within shop scope', async () => {
+    const { prisma } = createPrismaHarness();
+    const repository = new PrismaRoutePlanRepository(
+      prisma as unknown as ConstructorParameters<typeof PrismaRoutePlanRepository>[0]
+    );
+
+    const result = await repository.assignRoutePlanDriver({
+      routePlanId: 'route-plan-id',
+      shopDomain: 'example.myshopify.com',
+      payload: { driverId: null }
+    });
+
+    expect(result?.routePlan.id).toBe('route-plan-id');
+    expect(prisma.driver.findFirst).not.toHaveBeenCalled();
+    expect(prisma.routePlan.update).toHaveBeenCalledWith({
+      data: { driverId: null },
+      where: { id: 'route-plan-id' }
+    });
+  });
+
   test('deletes route-plan stops first and then deletes the route plan within shop scope', async () => {
     const { prisma } = createPrismaHarness();
     const repository = new PrismaRoutePlanRepository(
@@ -372,6 +434,7 @@ describe('PrismaRoutePlanRepository', () => {
 
 function createPrismaHarness(input: {
   deliveryStopForId?: { id: string } | null;
+  driverToAssign?: { authSubject: string | null; displayName: string; id: string } | null;
   existingRoutePlanStops?: Array<{ deliveryStopId: string }>;
   orderDeliveryDate?: string;
   orders?: Array<Record<string, unknown>>;
@@ -379,6 +442,9 @@ function createPrismaHarness(input: {
 } = {}): {
   prisma: {
     $transaction: ReturnType<typeof vi.fn>;
+    driver: {
+      findFirst: ReturnType<typeof vi.fn>;
+    };
     deliveryStop: {
       findFirst: ReturnType<typeof vi.fn>;
       upsert: ReturnType<typeof vi.fn>;
@@ -409,6 +475,15 @@ function createPrismaHarness(input: {
   const routePlanStopCreateMany = vi.fn(() => Promise.resolve({ count: 2 }));
   const prisma = {
     $transaction: vi.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(prisma)),
+    driver: {
+      findFirst: vi.fn(() =>
+        Promise.resolve(
+          input.driverToAssign === undefined
+            ? { id: 'driver-pending-id' }
+            : input.driverToAssign
+        )
+      )
+    },
     deliveryStop: {
       findFirst: vi.fn((args: { where?: { id?: string } }) =>
         Promise.resolve(
