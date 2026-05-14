@@ -15,6 +15,7 @@ describe('API documentation routes', () => {
       expect(response.body).toContain('CLEVER Delivery Server API Docs');
       expect(response.body).toContain('/docs/openapi.yaml');
       expect(response.body).toContain('/docs/swagger-ui/swagger-ui-bundle.js');
+      expect(response.body).toContain('rel="icon" href="data:,"');
     } finally {
       await app.close();
     }

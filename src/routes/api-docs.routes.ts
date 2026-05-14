@@ -79,6 +79,7 @@ function renderSwaggerUiHtml(): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CLEVER Delivery Server API Docs</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/docs/swagger-ui/swagger-ui.css" />
     <style>
       body { margin: 0; background: #ffffff; }
