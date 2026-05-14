@@ -8,7 +8,7 @@ webhook ingress, native driver mobile calls, and operational health endpoints.
 
 | Artifact | Role | Owner / update trigger |
 | --- | --- | --- |
-| `docs/api/openapi.yaml` | Machine-readable Swagger/OpenAPI contract for every registered HTTP route in `src/routes/*.routes.ts`. It is served by the API at `/docs/openapi.yaml`; the browser Swagger UI is `/docs` and its Swagger UI CSS/JS assets are served from same-origin `/docs/swagger-ui/*` paths. | Update in the same PR as any route method/path/auth/request/response change. |
+| `docs/api/openapi.yaml` | Machine-readable Swagger/OpenAPI contract for every registered HTTP route in `src/routes/*.routes.ts`. It is served by the API at `/docs/openapi.yaml`; the browser Swagger UI is `/docs` and its Swagger UI CSS/JS/initialization assets are served from same-origin `/docs/swagger-ui/*` paths. | Update in the same PR as any route method/path/auth/request/response change. |
 | `docs/api/*.md` | Human-readable behavior notes, examples, persistence model, data-minimization notes, and rollout caveats that do not fit well in OpenAPI. | Update when semantics, validation, data boundaries, or operational expectations change. |
 | `README.md` | Quick-start and high-level readiness summary only. | Link to this directory; avoid duplicating full contracts there. |
 | `clever-context-monorepo/docs/services/clever-delivery-server/index.md` | Cross-repo service context pointer. | Update only when service responsibility, API ownership, or data-flow boundaries change across repos. |

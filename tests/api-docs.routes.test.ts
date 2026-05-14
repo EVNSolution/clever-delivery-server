@@ -14,7 +14,7 @@ describe('API documentation routes', () => {
       expect(response.headers['content-type']).toContain('text/html');
       expect(response.body).toContain('CLEVER Delivery Server API Docs');
       expect(response.body).toContain('/docs/openapi.yaml');
-      expect(response.body).toContain('SwaggerUIBundle');
+      expect(response.body).toContain('/docs/swagger-ui/swagger-ui-bundle.js');
     } finally {
       await app.close();
     }
@@ -30,7 +30,9 @@ describe('API documentation routes', () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).toContain('/docs/swagger-ui/swagger-ui.css');
       expect(response.body).toContain('/docs/swagger-ui/swagger-ui-bundle.js');
+      expect(response.body).toContain('/docs/swagger-ui/init.js');
       expect(response.body).not.toContain('cdn.jsdelivr.net');
+      expect(response.body).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
       expect(csp).toContain("script-src 'self'");
       expect(csp).not.toContain('cdn.jsdelivr.net');
     } finally {
@@ -44,6 +46,7 @@ describe('API documentation routes', () => {
     try {
       const css = await app.inject({ method: 'GET', url: '/docs/swagger-ui/swagger-ui.css' });
       const js = await app.inject({ method: 'GET', url: '/docs/swagger-ui/swagger-ui-bundle.js' });
+      const init = await app.inject({ method: 'GET', url: '/docs/swagger-ui/init.js' });
 
       expect(css.statusCode).toBe(200);
       expect(css.headers['content-type']).toContain('text/css');
@@ -51,6 +54,9 @@ describe('API documentation routes', () => {
       expect(js.statusCode).toBe(200);
       expect(js.headers['content-type']).toContain('javascript');
       expect(js.body).toContain('SwaggerUIBundle');
+      expect(init.statusCode).toBe(200);
+      expect(init.headers['content-type']).toContain('javascript');
+      expect(init.body).toContain("url: '/docs/openapi.yaml'");
     } finally {
       await app.close();
     }
