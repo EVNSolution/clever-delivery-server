@@ -20,7 +20,7 @@ describe('API documentation routes', () => {
     }
   });
 
-  test('GET /docs allows the Swagger UI CDN assets required by the browser page', async () => {
+  test('GET /docs uses same-origin Swagger UI assets instead of a public CDN', async () => {
     const app = await buildApp();
 
     try {
@@ -28,8 +28,29 @@ describe('API documentation routes', () => {
       const csp = String(response.headers['content-security-policy']);
 
       expect(response.statusCode).toBe(200);
-      expect(csp).toContain('https://cdn.jsdelivr.net');
-      expect(csp).toContain("script-src 'self' https://cdn.jsdelivr.net");
+      expect(response.body).toContain('/docs/swagger-ui/swagger-ui.css');
+      expect(response.body).toContain('/docs/swagger-ui/swagger-ui-bundle.js');
+      expect(response.body).not.toContain('cdn.jsdelivr.net');
+      expect(csp).toContain("script-src 'self'");
+      expect(csp).not.toContain('cdn.jsdelivr.net');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('GET /docs/swagger-ui assets are served by the API server', async () => {
+    const app = await buildApp();
+
+    try {
+      const css = await app.inject({ method: 'GET', url: '/docs/swagger-ui/swagger-ui.css' });
+      const js = await app.inject({ method: 'GET', url: '/docs/swagger-ui/swagger-ui-bundle.js' });
+
+      expect(css.statusCode).toBe(200);
+      expect(css.headers['content-type']).toContain('text/css');
+      expect(css.body).toContain('swagger-ui');
+      expect(js.statusCode).toBe(200);
+      expect(js.headers['content-type']).toContain('javascript');
+      expect(js.body).toContain('SwaggerUIBundle');
     } finally {
       await app.close();
     }

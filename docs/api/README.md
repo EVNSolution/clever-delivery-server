@@ -8,15 +8,17 @@ webhook ingress, native driver mobile calls, and operational health endpoints.
 
 | Artifact | Role | Owner / update trigger |
 | --- | --- | --- |
-| `docs/api/openapi.yaml` | Machine-readable Swagger/OpenAPI contract for every registered HTTP route in `src/routes/*.routes.ts`. It is served by the API at `/docs/openapi.yaml`; the browser Swagger UI is `/docs`. | Update in the same PR as any route method/path/auth/request/response change. |
+| `docs/api/openapi.yaml` | Machine-readable Swagger/OpenAPI contract for every registered HTTP route in `src/routes/*.routes.ts`. It is served by the API at `/docs/openapi.yaml`; the browser Swagger UI is `/docs` and its Swagger UI CSS/JS assets are served from same-origin `/docs/swagger-ui/*` paths. | Update in the same PR as any route method/path/auth/request/response change. |
 | `docs/api/*.md` | Human-readable behavior notes, examples, persistence model, data-minimization notes, and rollout caveats that do not fit well in OpenAPI. | Update when semantics, validation, data boundaries, or operational expectations change. |
 | `README.md` | Quick-start and high-level readiness summary only. | Link to this directory; avoid duplicating full contracts there. |
 | `clever-context-monorepo/docs/services/clever-delivery-server/index.md` | Cross-repo service context pointer. | Update only when service responsibility, API ownership, or data-flow boundaries change across repos. |
 
-Generated HTML, Swagger UI bundles, Postman collections, or SDK stubs are not
-source artifacts. Generate them from `docs/api/openapi.yaml` into temporary
+Generated HTML, copied Swagger UI bundles, Postman collections, or SDK stubs are
+not source artifacts. Generate them from `docs/api/openapi.yaml` into temporary
 local output or a release evidence workspace, and do not commit generated files
-unless a release issue explicitly requests them.
+unless a release issue explicitly requests them. The deployed `/docs` route reads
+the `swagger-ui-dist` package at runtime instead of committing generated vendor
+assets.
 
 ## Deployed web addresses
 
@@ -25,7 +27,10 @@ unless a release issue explicitly requests them.
 
 These paths are served by `src/routes/api-docs.routes.ts` and are deployed with
 the Node API container. The Docker image copies `docs/api` into the runtime image
-so the hosted YAML is the same committed source artifact.
+so the hosted YAML is the same committed source artifact. `/docs` intentionally
+uses same-origin Swagger UI assets from the API container, not a public CDN, so
+the interactive docs can load wherever the delivery server host itself is
+reachable.
 
 ## Consumer map
 
