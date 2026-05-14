@@ -55,6 +55,13 @@ export function registerApiDocsRoutes(app: FastifyInstance): void {
       .send(bundle);
   });
 
+  app.get('/docs/swagger-ui/init.js', (_request, reply) => {
+    return reply
+      .type('application/javascript; charset=utf-8')
+      .header('Cache-Control', 'no-store')
+      .send(renderSwaggerUiInitScript());
+  });
+
   app.get('/docs/openapi.yaml', async (_request, reply) => {
     const openApiDocument = await readFile(OPENAPI_DOCUMENT_URL, 'utf8');
 
@@ -88,15 +95,18 @@ function renderSwaggerUiHtml(): string {
       <a href="/docs/openapi.yaml">OpenAPI YAML</a>.
     </div>
     <script src="/docs/swagger-ui/swagger-ui-bundle.js"></script>
-    <script>
-      window.ui = SwaggerUIBundle({
-        url: '/docs/openapi.yaml',
-        dom_id: '#swagger-ui',
-        deepLinking: true,
-        presets: [SwaggerUIBundle.presets.apis],
-        layout: 'BaseLayout'
-      });
-    </script>
+    <script src="/docs/swagger-ui/init.js"></script>
   </body>
 </html>`;
+}
+
+function renderSwaggerUiInitScript(): string {
+  return `window.ui = SwaggerUIBundle({
+  url: '/docs/openapi.yaml',
+  dom_id: '#swagger-ui',
+  deepLinking: true,
+  presets: [SwaggerUIBundle.presets.apis],
+  layout: 'BaseLayout'
+});
+`;
 }

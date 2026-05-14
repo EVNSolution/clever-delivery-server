@@ -82,6 +82,19 @@ paths:
             application/javascript:
               schema:
                 type: string
+  /docs/swagger-ui/init.js:
+    get:
+      tags: [API Documentation]
+      summary: Same-origin Swagger UI initialization script
+      operationId: getSwaggerUiInitScript
+      x-source-file: src/routes/api-docs.routes.ts
+      responses:
+        '200':
+          description: Small initialization script for the interactive Swagger UI. Served externally so the `/docs` CSP does not require inline scripts.
+          content:
+            application/javascript:
+              schema:
+                type: string
   /docs/openapi.yaml:
     get:
       tags: [API Documentation]
