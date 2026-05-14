@@ -13,6 +13,16 @@ export type RoutePlanDepotInput = {
   longitude: number | null;
 };
 
+export type RoutePlanDriverSummary = {
+  authStatus: 'APP_LINKED' | 'INVITE_PENDING';
+  authSubject: 'present' | null;
+  displayName: string;
+  id: string;
+  lastSeenAt: string | null;
+  phone: string | null;
+  status: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'SUSPENDED';
+};
+
 export type RoutePlanOrderAttributeInput = {
   key: string;
   value: string;
@@ -77,6 +87,8 @@ export type RoutePlanSummary = {
     latitude: number | null;
     longitude: number | null;
   };
+  driver: RoutePlanDriverSummary | null;
+  driverId: string | null;
   id: string;
   missingCoordinates: number;
   name: string;
@@ -141,6 +153,16 @@ export type UpdateRoutePlanStopsInput = {
   payload: UpdateRoutePlanStopsPayload;
 };
 
+export type AssignRoutePlanDriverPayload = {
+  driverId: string | null;
+};
+
+export type AssignRoutePlanDriverInput = {
+  routePlanId: string;
+  shopDomain: string;
+  payload: AssignRoutePlanDriverPayload;
+};
+
 export type RoutePlanDetail = {
   routePlan: RoutePlanSummary;
   routeGeometry: RoutePlanRouteGeometry | null;
@@ -149,6 +171,7 @@ export type RoutePlanDetail = {
 };
 
 export type RoutePlanService = {
+  assignRoutePlanDriver(input: AssignRoutePlanDriverInput): Promise<RoutePlanDetail | null>;
   createRoutePlan(input: CreateRoutePlanInput): Promise<RoutePlanSummary>;
   deleteRoutePlan(input: { routePlanId: string; shopDomain: string }): Promise<{
     routePlanId: string;

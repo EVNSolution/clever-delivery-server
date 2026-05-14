@@ -5,6 +5,7 @@ import {
   RoutePlanStopUpdateInvalidError
 } from './route-plan.types.js';
 import type {
+  AssignRoutePlanDriverInput,
   RoutePlanDepotInput,
   RoutePlanDetail,
   RoutePlanDetailStop,
@@ -22,7 +23,7 @@ const OPTIMIZER_VERSION = 'manual-sequence-mvp';
 
 type RoutePlanPrismaClient = Pick<
   PrismaClient,
-  '$transaction' | 'deliveryStop' | 'order' | 'routePlan' | 'routePlanStop' | 'shop'
+  '$transaction' | 'deliveryStop' | 'driver' | 'order' | 'routePlan' | 'routePlanStop' | 'shop'
 >;
 
 type RoutePlanRecord = {
@@ -31,6 +32,8 @@ type RoutePlanRecord = {
   deliveryDate?: Date | null;
   depotLatitude: unknown;
   depotLongitude: unknown;
+  driver?: DriverRecord | null;
+  driverId?: string | null;
   id: string;
   metrics: unknown;
   name: string;
@@ -38,6 +41,15 @@ type RoutePlanRecord = {
   routeStops?: RoutePlanStopRecord[];
   status: string;
   updatedAt: Date;
+};
+
+type DriverRecord = {
+  authSubject: string | null;
+  displayName: string;
+  id: string;
+  lastSeenAt: Date | null;
+  phone: string | null;
+  status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 };
 
 type RoutePlanStopRecord = {
@@ -403,6 +415,61 @@ export class PrismaRoutePlanRepository implements RoutePlanRepository {
     });
   }
 
+  async assignRoutePlanDriver(input: AssignRoutePlanDriverInput): Promise<RoutePlanDetail | null> {
+    const shopDomain = normalizeShopDomain(input.shopDomain);
+    const driverId = normalizeOptionalId(input.payload.driverId);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const shop = await tx.shop.findUnique({
+        select: { id: true },
+        where: { shopDomain }
+      });
+      if (shop === null) {
+        return false;
+      }
+
+      const routePlan = await tx.routePlan.findFirst({
+        select: { id: true },
+        where: {
+          id: input.routePlanId,
+          shopId: shop.id
+        }
+      });
+      if (routePlan === null) {
+        return false;
+      }
+
+      if (driverId !== null) {
+        const driver = await tx.driver.findFirst({
+          select: { id: true },
+          where: {
+            id: driverId,
+            shopId: shop.id
+          }
+        });
+        if (driver === null) {
+          return false;
+        }
+      }
+
+      await tx.routePlan.update({
+        data: { driverId },
+        where: { id: input.routePlanId }
+      });
+
+      return true;
+    });
+
+    if (!updated) {
+      return null;
+    }
+
+    return this.findRoutePlanDetail({
+      routePlanId: input.routePlanId,
+      shopDomain: input.shopDomain
+    });
+  }
+
   private async findShop(shopDomain: string): Promise<{ id: string } | null> {
     return this.prisma.shop.findUnique({
       select: { id: true },
@@ -553,6 +620,16 @@ function createMetricsFromOrders(
 }
 
 function routePlanInclude(): {
+  driver: {
+    select: {
+      authSubject: true;
+      displayName: true;
+      id: true;
+      lastSeenAt: true;
+      phone: true;
+      status: true;
+    };
+  };
   routeStops: {
     include: {
       deliveryStop: {
@@ -567,6 +644,16 @@ function routePlanInclude(): {
   };
 } {
   return {
+    driver: {
+      select: {
+        authSubject: true,
+        displayName: true,
+        id: true,
+        lastSeenAt: true,
+        phone: true,
+        status: true
+      }
+    },
     routeStops: {
       include: {
         deliveryStop: {
@@ -676,6 +763,8 @@ function toRoutePlanSummary(routePlan: RoutePlanRecord, inputOrders?: RoutePlanO
       latitude: decimalNumber(routePlan.depotLatitude),
       longitude: decimalNumber(routePlan.depotLongitude)
     },
+    driver: toRoutePlanDriverSummary(routePlan.driver ?? null),
+    driverId: routePlan.driverId ?? routePlan.driver?.id ?? null,
     id: routePlan.id,
     missingCoordinates: metrics.missingCoordinates,
     name: routePlan.name,
@@ -683,6 +772,23 @@ function toRoutePlanSummary(routePlan: RoutePlanRecord, inputOrders?: RoutePlanO
     status: routePlan.status,
     stopsCount: metrics.stopsCount,
     updatedAt: routePlan.updatedAt.toISOString()
+  };
+}
+
+function toRoutePlanDriverSummary(driver: DriverRecord | null): RoutePlanSummary['driver'] {
+  if (driver === null) {
+    return null;
+  }
+
+  const isInvitePending = driver.authSubject === null;
+  return {
+    authStatus: isInvitePending ? 'INVITE_PENDING' : 'APP_LINKED',
+    authSubject: isInvitePending ? null : 'present',
+    displayName: driver.displayName,
+    id: driver.id,
+    lastSeenAt: driver.lastSeenAt?.toISOString() ?? null,
+    phone: driver.phone,
+    status: isInvitePending ? 'PENDING' : driver.status
   };
 }
 
@@ -888,6 +994,14 @@ function decimalNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeOptionalId(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
 
 function parseTorontoTimeWindow(deliveryDate: string | null, time: string | null): Date | null {
   if (deliveryDate === null || time === null) return null;
