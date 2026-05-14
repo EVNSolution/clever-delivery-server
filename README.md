@@ -60,6 +60,8 @@ docker compose up --build
 
 See `docs/deployment/ec2-ebs.md` for EC2/EBS deployment, backup/restore, and RDS migration-path notes.
 
+See `docs/api/README.md` for the API documentation storage strategy and `docs/api/openapi.yaml` for the Swagger/OpenAPI contract covering Shopify, admin, driver mobile, and health endpoints. The deployed Swagger UI is served at `https://clever-delivery.3-39-216-177.sslip.io/docs`, with raw OpenAPI YAML at `/docs/openapi.yaml`.
+
 ## Repository governance
 
 - Contribution flow: `CONTRIBUTING.md`

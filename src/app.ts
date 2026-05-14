@@ -10,6 +10,7 @@ import {
 } from './routes/admin-route-plans.routes.js';
 import { registerAdminDriversRoutes, type AdminDriversDependencies } from './routes/admin-drivers.routes.js';
 import { registerAdminOrdersRoutes, type AdminOrdersDependencies } from './routes/admin-orders.routes.js';
+import { registerApiDocsRoutes } from './routes/api-docs.routes.js';
 import { registerDriverEventRoutes, type DriverApiDependencies } from './routes/driver-events.routes.js';
 import { registerJsonBodyParser } from './routes/json-body-parser.js';
 import { registerHealthRoutes } from './routes/health.routes.js';
@@ -44,6 +45,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
   await app.register(helmet);
   await app.register(cors, { origin: options.corsOrigin ?? false });
+  registerApiDocsRoutes(app);
   registerHealthRoutes(app);
 
   if (options.adminDrivers !== undefined) {
